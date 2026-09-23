@@ -1,0 +1,47 @@
+// Turns every error into the standard error JSON (SRS §8.2, NFR-REL-01).
+// Unexpected errors are logged in full but reach the client only as a generic message (NFR-SEC-09).
+import type { NextFunction, Request, Response } from 'express';
+import { ZodError } from 'zod';
+import { AppError, InternalError, ValidationError } from '../domain/errors.ts';
+
+type BodyParserError = { type?: string };
+
+function isBodyParserError(error: unknown, type: string): boolean {
+  return typeof error === 'object' && error !== null && (error as BodyParserError).type === type;
+}
+
+function toAppError(error: unknown): AppError {
+  if (error instanceof AppError) {
+    return error;
+  }
+  if (error instanceof ZodError) {
+    const fields = error.issues.map((issue) => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    }));
+    return new ValidationError('Some fields are missing or not valid.', { fields });
+  }
+  if (isBodyParserError(error, 'entity.parse.failed')) {
+    return new ValidationError('The request body is not valid JSON.');
+  }
+  if (isBodyParserError(error, 'entity.too.large')) {
+    return new ValidationError('The request body is too large.');
+  }
+  return new InternalError();
+}
+
+export function errorHandler(
+  error: unknown,
+  req: Request,
+  res: Response,
+  _next: NextFunction,
+): void {
+  const appError = toAppError(error);
+  if (appError instanceof InternalError) {
+    req.log.error({ err: error }, 'Unexpected error');
+  }
+  res.status(appError.httpStatus).json({
+    error: { code: appError.code, message: appError.message, details: appError.details },
+    requestId: req.id,
+  });
+}

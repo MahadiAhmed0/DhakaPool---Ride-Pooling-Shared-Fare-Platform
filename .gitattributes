@@ -1,2 +1,12 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Normalise line endings to LF in the repository and in working copies,
+# so files copied into Linux containers never contain CRLF.
+* text=auto eol=lf
+
+# Binary files
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff2 binary
+*.pdf binary

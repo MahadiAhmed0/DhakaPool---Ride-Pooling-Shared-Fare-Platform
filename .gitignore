@@ -1,0 +1,26 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Generated Prisma client (re-created by `prisma generate`)
+**/src/generated/
+
+# Local environment — never commit secrets (NFR-SEC-05)
+.env
+.env.*
+!.env.example
+
+# Source brief kept locally, not part of the repository
+/*.pdf
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+npm-debug.log*
