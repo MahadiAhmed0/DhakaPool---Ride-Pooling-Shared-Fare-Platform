@@ -1,13 +1,11 @@
 // Test runner configuration (ADR-0011). Tests use their own database, never the development one.
 import { defineConfig } from 'vitest/config';
-
-const TEST_DATABASE_URL =
-  process.env['TEST_DATABASE_URL'] ??
-  'postgresql://dhakapool:change-me@localhost:5432/dhakapool_test';
+import { TEST_DATABASE_URL } from './test/setup/test-database-url.ts';
 
 export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
+    globalSetup: ['test/setup/global-setup.ts'],
     env: {
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
