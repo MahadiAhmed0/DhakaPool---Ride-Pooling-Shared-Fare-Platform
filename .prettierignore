@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+.next
+package-lock.json
+**/src/generated
+docs/*.xlsx
+*.pdf
+# Documentation is formatted by hand (tables, headings)
+*.md

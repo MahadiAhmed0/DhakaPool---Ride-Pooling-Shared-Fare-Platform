@@ -1,0 +1,12 @@
+// Next.js configuration for the web app (ARCHITECTURE §10).
+import path from 'node:path';
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
+  // "standalone" produces a small self-contained server for the Docker image.
+  output: 'standalone',
+  // The app lives in a monorepo, so file tracing starts at the repository root.
+  outputFileTracingRoot: path.resolve(process.cwd(), '../..'),
+};
+
+export default nextConfig;
