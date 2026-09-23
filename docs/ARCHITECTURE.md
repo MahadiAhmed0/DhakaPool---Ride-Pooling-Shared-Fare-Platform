@@ -1,0 +1,509 @@
+# Architecture — Dhaka Tesla Pool (MVP)
+
+| Field | Value |
+|---|---|
+| Document ID | DTP-ARC-001 |
+| Version | 0.1 (Draft for review) |
+| Author | Golam Mahadi Ahmed |
+| Implements | [SRS DTP-SRS-001 v0.2](SRS.md) |
+| Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
+
+| Version | Date | Change |
+|---|---|---|
+| 0.1 | 2026-09-24 | Initial architecture: containers, module layout, key flows, concurrency strategy, security, deployment |
+
+> **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
+
+---
+
+## 1. Architecture drivers
+
+Only a handful of SRS requirements actually shape the architecture. Everything else is a detail inside the chosen shape.
+
+| # | Driver | SRS source | Architectural consequence |
+|---|---|---|---|
+| AD-1 | Bullet's seats can never be overbooked, even when two accepts arrive at the same instant | FR-POOL-02, NFR-CON-01…04 | A single relational database with transactions, row locks and constraints. Every seat change goes through one service code path. |
+| AD-2 | Only legal lifecycle transitions, by the right actor | BR-06, SRS §5 | One table-driven state-machine module. Transitions are explicit command endpoints, never a generic "set status". |
+| AD-3 | A user touches only their own data | NFR-SEC-03 | Ownership checks in the service layer, which is the single choke point. The UI is never trusted. |
+| AD-4 | Every ride is fully auditable after the fact | FR-HIST-01…04 | The audit row is written in the same transaction as the change it records. The audit table is append-only, enforced by a database trigger. |
+| AD-5 | Fares are exact and hand-checkable | BR-10…14 | Pure fare function over integer paisa, in a separate `domain/` layer. |
+| AD-6 | Runs anywhere with `docker compose up`, on free tiers | NFR-POR-01, DC-04 | Three containers, no third-party runtime dependencies. |
+| AD-7 | No complexity without a demonstrated need; code must be easy to trace, debug and change | DC-05, PRD §8–9 | A modular monolith with conventional layers. No queues, Redis, microservices or implicit framework behaviour. |
+
+## 2. Architectural style
+
+The system is a **modular monolith** with three runtime containers:
+- a **Next.js** web app, which is UI only;
+- an **Express + TypeScript** API, which holds all business logic;
+- **PostgreSQL**, which is the source of truth and the final guard on integrity.
+
+Three things keep the monolith modular:
+- **Domain modules:** auth, zones, fares, rides, drivers, pools, wallet, audit. A module may call another module's *service*, never its repository.
+- **Strict layers inside the API:** routes → controller → service → repository.
+- **A pure `domain/` layer:** fare, matching, state machine, money. It has no I/O, so it can be unit-tested in isolation.
+
+Why not microservices, a queue or a cache: see ADR-0001 and DC-05. Every rule that matters (capacity, transitions, wallet balance) needs a single ACID transaction. Splitting services would force distributed consistency to solve a problem we don't have.
+
+## 3. System context
+
+```mermaid
+flowchart LR
+    subgraph People
+        P["Passenger<br/>Nusrat · Rafiq · Shirin"]
+        D["Driver<br/>Jashim with Bullet"]
+    end
+    SYS["Dhaka Tesla Pool<br/>web app + API + database"]
+    P -- "request ride, track status,<br/>cancel, history, wallet" --> SYS
+    D -- "go online, accept into pool,<br/>arrive, start, drop off" --> SYS
+```
+
+There are no external systems. Maps, payment gateways, SMS and e-mail are out of scope (SRS §1.2, DC-06).
+
+## 4. Container view (PRD §9 minimum: Browser → Next.js → Node.js API → Database)
+
+```mermaid
+flowchart LR
+    B["Browser<br/>(mobile / desktop)"]
+    subgraph WEB["web — Next.js App Router (Node LTS)"]
+        UI["Pages & components<br/>TanStack Query (polling)"]
+        PX["/api/* rewrite proxy"]
+    end
+    subgraph API["api — Express 5 + TypeScript (Node LTS)"]
+        MW["Middleware<br/>request-id · pino logger · helmet ·<br/>session auth · role guard · Zod validation · rate limit"]
+        MOD["Domain modules<br/>auth · zones · fares · rides · drivers · pools · wallet · audit"]
+        DOM["Pure domain layer<br/>fare · matching · state machine · money"]
+        JOB["In-process job<br/>request-expiry sweeper (60 s)"]
+        PR["Prisma Client"]
+    end
+    DB[("PostgreSQL 16<br/>constraints · partial unique indexes ·<br/>row locks · append-only audit trigger")]
+
+    B -- "HTTPS: pages + /api/* JSON<br/>(same origin, httpOnly session cookie)" --> WEB
+    UI --> PX
+    PX -- "HTTP JSON (internal network)" --> MW
+    MW --> MOD --> DOM
+    MOD --> PR -- "SQL / TCP 5432" --> DB
+    JOB --> PR
+```
+
+| Container | Responsibility | Does not do |
+|---|---|---|
+| **web** | Rendering, routing, forms, client-side validation for UX, polling, and proxying `/api/*` to the API so that the browser talks to one origin | Business rules, direct DB access, authorization decisions |
+| **api** | Authentication, authorization, validation, all business rules, transactions, audit, logging, the expiry job | HTML rendering |
+| **db** | Durable state, and the final guarantee of every integrity rule (CHECK, unique, FK, trigger) | Business workflows (no stored procedures beyond the audit guard) |
+
+**Why the proxy (ADR-0005).** The browser calls `https://<web-origin>/api/...`, and Next.js rewrites the call to `API_INTERNAL_URL`. Session cookies are therefore first-party. This means:
+- no CORS preflights;
+- no `SameSite=None` cookies;
+- no third-party-cookie blocking when the web app and API are later hosted on different domains (Vercel and Railway).
+
+## 5. API internal structure
+
+### 5.1 Request pipeline
+
+```mermaid
+flowchart LR
+    R["HTTP request"] --> A["requestId<br/>(X-Request-Id or new UUID)"] --> L["pino-http logger<br/>(redacts cookie, password)"] --> H["helmet + JSON body limit 100 kB"] --> S["session loader<br/>cookie → sessions table → req.user"] --> G["requireAuth / requireRole"] --> V["Zod validate<br/>params · query · body (strict)"] --> C["controller"] --> SV["service<br/>(transaction, rules, audit)"] --> RP["repository<br/>(Prisma, tx-scoped)"]
+    SV -. "throws AppError" .-> E["error handler → standard error JSON"]
+```
+
+### 5.2 Layer rules
+
+| Layer | May depend on | Contains | Must not contain |
+|---|---|---|---|
+| `routes` | controller, middleware | Path, method, auth/role/validation middleware | Logic |
+| `controller` | service, shared schemas | Read the validated input, call the service, map to a response DTO (e.g. hide co-rider data, A-09) | Transactions, SQL, rules |
+| `service` | repositories, domain, other modules' services, audit | Use-case orchestration, **transaction boundaries**, ownership checks, locking, audit writes | HTTP objects (`req`/`res`) |
+| `repository` | Prisma `TransactionClient` | Queries. Every function takes the `tx` it runs in. | Rules, HTTP |
+| `domain` | nothing (pure) | `fare.ts`, `matching.ts`, `state-machine.ts`, `money.ts`, `errors.ts` | I/O, Prisma, Date.now (time is passed in) |
+
+**Transactions are owned by services.** A service opens `withTransaction(async (tx) => { … })` and passes `tx` to every repository call and to `audit.record(tx, …)`. Either everything commits together or nothing does (NFR-CON-02, FR-HIST-01).
+
+### 5.3 Modules and endpoints
+
+| Module | Endpoints (SRS §8.2) | Key service functions |
+|---|---|---|
+| `auth` | `POST /api/auth/signup`, `/login`, `/logout`, `GET /api/auth/me` | `signUp`, `logIn` (creates session), `logOut` (revokes), `getMe` |
+| `zones` | `GET /api/zones` | `listZones` (cached in memory; reference data) |
+| `fares` | `POST /api/fares/estimate` | `estimate(pickup, destination, seats)` → solo and pooled |
+| `rides` | `POST /api/rides`, `GET /api/rides`, `GET /api/rides/:id`, `POST /api/rides/:id/cancel` | `createRequest`, `listForPassenger`, `getForPassenger`, `cancelByPassenger` |
+| `drivers` | `PUT /api/driver/availability`, `GET /api/driver/requests`, `POST /api/driver/requests/:id/accept`, `GET /api/driver/pools` | `setAvailability`, `listRelevantRequests`, `acceptRequest` (delegates to pools) |
+| `pools` | `POST /api/pools/:id/arrive`, `/start`, `/cancel`, `POST /api/pools/:id/members/:rideId/complete`, `/no-show`, `/cash-collected` | `addMember`, `markArrived`, `startTrip` (locks fares), `dropOff`, `cancelPool`, `markNoShow`, `markCashCollected` |
+| `wallet` | `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/topup` | `getWallet`, `topUp`, `debitForRide(tx, …)`, `chargeCancellationFee(tx, …)` |
+| `audit` | *(internal)* | `record(tx, { entityType, entityId, from, to, actor, reason })` |
+| `health` | `GET /health` | DB `SELECT 1` → `{ status, db }` |
+
+### 5.4 Pure domain layer
+
+- **`fare.ts`** implements BR-10 exactly: `computeFare({ distanceM, seats, pooled, rates }) → { basePaisa, distanceChargePaisa, discountPaisa, farePerSeatPaisa, totalPaisa }`. Integers in, integers out. `roundHalfUp` is implemented on integers, with no floats involved.
+- **`matching.ts`** implements BR-02: `isCompatible(request, pool, members, adjacency, now) → { ok: true } | { ok: false, reason }`. The reasons are `DIFFERENT_PICKUP`, `NOT_OPTED_IN`, `DESTINATION_NOT_ADJACENT`, `JOIN_WINDOW_PASSED`, `NO_SEATS` and `POOL_NOT_OPEN`.
+- **`state-machine.ts`** holds the transition tables from SRS §5 as data:
+
+```ts
+// shape only — actors allowed per (from → to)
+const RIDE: Record<RideStatus, Partial<Record<RideStatus, ActorRole[]>>> = {
+  REQUESTED:      { MATCHED: ['DRIVER'], CANCELLED: ['PASSENGER'], EXPIRED: ['SYSTEM'] },
+  MATCHED:        { DRIVER_ARRIVED: ['DRIVER'], CANCELLED: ['PASSENGER'], REQUESTED: ['DRIVER'] },
+  DRIVER_ARRIVED: { STARTED: ['DRIVER'], CANCELLED: ['PASSENGER', 'DRIVER'], REQUESTED: ['DRIVER'] },
+  STARTED:        { COMPLETED: ['DRIVER'] },
+  COMPLETED: {}, CANCELLED: {}, EXPIRED: {},
+};
+assertTransition('RIDE', from, to, actor); // throws InvalidTransitionError → 409
+```
+
+The service uses the table to *decide* whether a transition is allowed, and the database compare-and-set (§7.2) to make sure the decision still holds at write time.
+
+## 6. Key flows
+
+### 6.1 Passenger requests a ride (Nusrat, Banani → Mohakhali)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor N as Nusrat (browser)
+    participant W as web
+    participant A as api · rides.service
+    participant DB as PostgreSQL
+    N->>W: Request ride form (BAN → MHK, 1 seat, share = on, TeslaPay)
+    W->>A: POST /api/fares/estimate
+    A-->>W: solo 7500 · pooled 6600
+    N->>W: Confirm
+    W->>A: POST /api/rides
+    A->>A: Zod validate, requireRole PASSENGER
+    rect rgb(235, 245, 255)
+    note over A,DB: one transaction
+    A->>DB: expire this passenger's stale REQUESTED rides (lazy expiry)
+    A->>DB: check TeslaPay balance ≥ solo estimate
+    A->>DB: INSERT ride_requests (status REQUESTED, expires_at = now + 15 min)
+    note right of DB: partial unique index rejects a second active ride
+    A->>DB: INSERT status_history (null → REQUESTED, actor Nusrat)
+    end
+    A-->>W: 201 ride (own data only)
+    loop every 4 s while ride active and tab visible
+        W->>A: GET /api/rides?scope=active
+    end
+```
+
+### 6.2 Driver accepts into a pool — the critical path (AD-1)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor J as Jashim (browser)
+    participant A as api · pools.service
+    participant DB as PostgreSQL
+    J->>A: POST /api/driver/requests/{rafiqRide}/accept
+    rect rgb(235, 245, 255)
+    note over A,DB: BEGIN (READ COMMITTED) — lock order is always driver → pool → ride → wallet
+    A->>DB: SELECT … FROM driver_profiles WHERE user_id = Jashim FOR UPDATE
+    A->>A: must be ONLINE, else 409 DRIVER_OFFLINE
+    A->>DB: SELECT active pool of Jashim FOR UPDATE
+    alt no active pool
+        A->>DB: INSERT pools (OPEN, capacity 3 copied from Bullet, occupied 0)
+    else pool exists
+        A->>A: pool must be OPEN, else 409 POOL_NOT_OPEN
+    end
+    A->>DB: SELECT ride + active members + adjacency
+    A->>A: matching.isCompatible() and seats check, else 422 NOT_COMPATIBLE or 409 CAPACITY_EXCEEDED
+    A->>DB: UPDATE ride_requests SET status = MATCHED WHERE id = R AND status = REQUESTED AND expires_at > now()
+    note right of DB: 0 rows means someone else won, so 409 INVALID_STATE_TRANSITION and ROLLBACK
+    A->>DB: INSERT pool_members (seats 1)
+    A->>DB: UPDATE pools SET occupied_seats = occupied_seats + 1
+    note right of DB: CHECK occupied_seats ≤ capacity is the last line of defence
+    A->>DB: INSERT status_history × 2 (ride REQUESTED → MATCHED, pool member added)
+    note over A,DB: COMMIT
+    end
+    A-->>J: 200 pool (2 / 3 seats)
+```
+
+### 6.3 The last-seat race (NFR-CON-01, PRD §12)
+
+Bullet has 2/3 seats occupied. Accepts for **Nusrat** and **Shirin** arrive at the same instant, for example from a double tap or two open tabs.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant T1 as Tx 1 · accept Nusrat
+    participant DB as PostgreSQL
+    participant T2 as Tx 2 · accept Shirin
+    T1->>DB: lock driver_profiles(Jashim) FOR UPDATE
+    DB-->>T1: granted
+    T2->>DB: lock driver_profiles(Jashim) FOR UPDATE
+    note over T2,DB: blocks until Tx 1 finishes
+    T1->>DB: lock pool, 2/3 occupied, compatible, claim seat → 3/3
+    T1->>DB: COMMIT
+    DB-->>T2: granted (sees committed data)
+    T2->>DB: lock pool, 3/3 occupied
+    T2->>T2: CAPACITY_EXCEEDED → ROLLBACK, 409
+```
+
+If the two contenders are **different drivers racing for the same request**, the driver locks do not collide. The ride's compare-and-set (`WHERE status = 'REQUESTED'`) lets exactly one transaction win. The loser rolls back everything, including a pool it may have just created.
+
+### 6.4 Trip lifecycle: arrive → start (fare lock) → drop-off (settlement)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor J as Jashim
+    participant A as api · pools.service
+    participant DB as PostgreSQL
+    J->>A: POST /pools/{P}/arrive
+    A->>DB: lock pool · CAS pool OPEN → DRIVER_ARRIVED · members MATCHED → DRIVER_ARRIVED · audit
+    J->>A: POST /pools/{P}/start
+    rect rgb(235, 245, 255)
+    A->>DB: lock pool · CAS DRIVER_ARRIVED → STARTED
+    A->>A: pooled = count(distinct passengers on board) ≥ 2 (BR-12)
+    A->>DB: INSERT fares (RIDE) per member with rate snapshot — Nusrat 6600, Rafiq 6000
+    A->>DB: members DRIVER_ARRIVED → STARTED · audit
+    end
+    J->>A: POST /pools/{P}/members/{nusratRide}/complete
+    rect rgb(235, 245, 255)
+    A->>DB: lock pool → ride → Nusrat's wallet
+    A->>DB: UPDATE wallets SET balance = balance − 6600 WHERE id = W AND balance ≥ 6600
+    A->>DB: INSERT wallet_transactions (RIDE_PAYMENT −6600) · INSERT payments (PAID)
+    A->>DB: ride STARTED → COMPLETED · audit
+    end
+    J->>A: POST /pools/{P}/members/{rafiqRide}/complete
+    A->>DB: payment PENDING_CASH 6000 · ride COMPLETED · last member, so pool → COMPLETED, Jashim's zone = GL1
+    J->>A: POST /pools/{P}/members/{rafiqRide}/cash-collected
+    A->>DB: payment PAID (collected_by Jashim) · audit
+```
+
+### 6.5 Passenger cancels while matched (lock order preserved)
+
+1. Read the ride without a lock to find its active pool.
+2. Lock the pool (`FOR UPDATE`).
+3. CAS the ride `MATCHED → CANCELLED`. If 0 rows, re-read and return 409.
+4. Mark the membership `left_at = now()` and decrement `occupied_seats`.
+5. If no active members remain, the pool moves to `CANCELLED` (FR-POOL-07).
+6. Write audit rows, then COMMIT.
+
+In `DRIVER_ARRIVED`, the same transaction also inserts the ৳20 `CANCELLATION_FEE` fare and debits the wallet, or marks the fee `UNPAID` for cash (BR-07, FR-PAY-05).
+
+## 7. Consistency & concurrency strategy (NFR-CON-01…06, ADR-0006)
+
+### 7.1 Four layers of defence
+
+| Layer | Mechanism | Protects against |
+|---|---|---|
+| 1. Serialize | `SELECT … FOR UPDATE` on `driver_profiles` and `pools` rows, inside one transaction, **always in the order driver → pool → ride → wallet** | Two seat claims interleaving between "check" and "write"; deadlocks (fixed order) |
+| 2. Compare-and-set | `updateMany({ where: { id, status: expected } })` and require `count === 1` | Two different actors transitioning the same ride (two drivers, or a cancel racing an accept) |
+| 3. Constraints | `CHECK (occupied_seats BETWEEN 0 AND capacity)`, `CHECK (balance_paisa >= 0)`, and partial unique indexes: one active ride per passenger, one active pool per driver, one active membership per ride | Any bug in layers 1–2, and direct SQL |
+| 4. Atomicity | All side effects (membership, seats, fares, payments, ledger, audit) in the **same** transaction | Partial state after a crash or error |
+
+### 7.2 Why this combination
+
+- **Pessimistic locks rather than optimistic versioning** for pools. An accept reads several rows (members, adjacency) before deciding, and contention is local to one Tesla. A short row lock is simple to reason about and to test. Optimistic versioning would need retry loops for a hot, tiny resource.
+- **Postgres's default isolation, READ COMMITTED**, is enough. After a `FOR UPDATE` wait, each statement sees the latest committed data. SERIALIZABLE would add serialization failures to retry without adding safety here.
+- **Transactions are short.** They contain no network calls and no user think-time. The Prisma interactive transaction timeout is 5 s, and `lock_timeout` is 3 s, so a stuck lock becomes a fast 503 instead of a hang.
+- **Constraint errors are mapped, not leaked:**
+  - Postgres `23514` (check_violation) on `pools_occupied_seats_check` → 409 `CAPACITY_EXCEEDED`
+  - `23505` (unique_violation) on `ride_requests_one_active_per_passenger` → 409 `ACTIVE_REQUEST_EXISTS`
+  - `23505` on `pools_one_active_per_driver` → 409 `ACTIVE_POOL_EXISTS`
+  - lock timeout → 503
+
+### 7.3 Request expiry without a queue (NFR-REL-04, ADR-0006)
+
+- Every ride stores `expires_at`. The accept CAS includes `expires_at > now()`, so an expired ride can never be matched, even before the sweeper runs.
+- An in-process sweeper runs every 60 s: `UPDATE … SET status = 'EXPIRED' WHERE status = 'REQUESTED' AND expires_at <= now()`, plus audit rows with actor SYSTEM.
+- When a passenger creates a new ride, their own stale rides are expired first, in the same transaction, so a not-yet-swept ride never blocks them.
+- **Known limit:** with several API replicas, each would run a sweeper. The sweep is idempotent (CAS on status), so this stays correct, just redundant. At scale, move it to a scheduled job (§12).
+
+### 7.4 What changes at scale
+
+This is a preview; the full reasoning goes in the README bonus (DR-17).
+- Pool state gets a single writer: requests are partitioned by pickup zone or cell to one matcher, instead of relying on DB locks under high contention.
+- Every command takes an idempotency key.
+- Matching moves to geo-indexed search (H3 or PostGIS).
+- History reads go to read replicas.
+- Push delivery replaces polling.
+
+## 8. Security architecture (NFR-SEC-01…09, ADR-0005)
+
+| Concern | Design |
+|---|---|
+| Passwords | bcrypt (`bcryptjs`, cost from `BCRYPT_COST`, default 12, 10 in tests). No plaintext in DB or logs. |
+| Sessions | On login, generate 32 random bytes (base64url token). The DB stores **SHA-256(token)** in `sessions.token_hash`, never the token. The cookie is `dtp_session` with flags `HttpOnly; SameSite=Lax; Path=/; Max-Age=7d`, plus `Secure` in production. Logout sets `revoked_at` and clears the cookie. Expired or revoked sessions → 401. |
+| Session lookup | Middleware hashes the cookie token, loads the session and user in one indexed query, and attaches `req.user = { id, role }`. `last_seen_at` is updated at most once per 5 min. |
+| Authorization | `requireRole('PASSENGER' \| 'DRIVER')` per route. **Ownership is checked in services**: rides are loaded with `WHERE id = :id AND passenger_id = :me`, and pools with `WHERE id = :id AND driver_id = :me`. Other users' resources return **404** (not 403), so they are not revealed. |
+| Data minimisation | Passenger ride DTOs include `shared` and `coRiderCount` only (A-09). The driver pool DTO includes member names, fares and payment methods (A-10). |
+| Input validation | Zod schemas from `packages/shared`, `.strict()` (unknown keys rejected). UUID path params are validated. Enums are validated against the shared definitions. |
+| Transport & headers | `helmet()` defaults; JSON body limit 100 kB; `cors({ origin: WEB_ORIGIN, credentials: true })` only matters for direct API access, since the browser uses the proxy. |
+| Rate limiting | `express-rate-limit` on `/api/auth/login` and `/signup`: 10 per minute per IP. Memory store, which is acceptable for one instance and noted in §12. |
+| SQL injection | Prisma query API. The few raw queries use tagged templates (`$queryRaw` with parameters), never `$queryRawUnsafe`. |
+| Secrets | Only from environment variables, validated at boot by a Zod `env.ts`. `.env` is git-ignored; `.env.example` holds placeholders only. |
+| Errors | Production responses never include stacks. Every error carries `requestId`, which matches the log line. |
+
+## 9. Error handling & observability
+
+### 9.1 Errors
+
+- **`AppError(code, httpStatus, message, details?)`** is the base class. Its subclasses are:
+  - `ValidationError` (400)
+  - `UnauthenticatedError` (401)
+  - `ForbiddenError` (403)
+  - `NotFoundError` (404)
+  - `ConflictError` (409, used for `INVALID_STATE_TRANSITION`, `CAPACITY_EXCEEDED`, `ACTIVE_REQUEST_EXISTS`, `ACTIVE_POOL_EXISTS`, `POOL_NOT_OPEN`, `DRIVER_OFFLINE`)
+  - `UnprocessableError` (422, used for `NOT_COMPATIBLE`, `INSUFFICIENT_BALANCE`)
+- **One error-handler middleware** maps each error to the SRS §8.2 JSON shape:
+  - `AppError` → its own status and code
+  - `ZodError` → 400
+  - Prisma known errors → by constraint name (see §7.2)
+  - `P1001` or connection errors → 503 `SERVICE_UNAVAILABLE`
+  - anything else → 500 `INTERNAL_ERROR`
+
+### 9.2 Logs
+
+- `pino` writes JSON to stdout, which Docker collects.
+- `pino-http` adds these fields per request: `requestId`, `userId`, `method`, `route`, `statusCode` and `responseTimeMs`.
+- The `redact` option covers `req.headers.cookie`, `req.headers.authorization`, `*.password` and `*.token`.
+- Domain events are logged at INFO: `ride.transition`, `pool.transition` and `wallet.debit`.
+- Rejections are logged at WARN: `transition.rejected` with the code and actor (NFR-OBS-02).
+
+### 9.3 Health
+
+`GET /health` → `200 { status: "ok", db: "up" }`, or `503 { status: "degraded", db: "down" }`. It is used by Docker health checks and by the hosting platform's health check.
+
+## 10. Frontend architecture
+
+| Aspect | Design |
+|---|---|
+| Framework | Next.js App Router, TypeScript, `output: "standalone"` for a small Docker image |
+| Route groups | `(auth)` login and signup · `(passenger)` `/ride`, `/rides`, `/rides/[id]`, `/wallet` · `(driver)` `/driver`, `/driver/requests`, `/driver/pool`, `/driver/history` |
+| Guarding | Each group's server `layout.tsx` calls `GET {API_INTERNAL_URL}/api/auth/me`, forwarding the cookie, and redirects by role (FR-AUTH-05). The API still enforces the same rules. |
+| Data fetching | TanStack Query in client components through a small `apiClient` that parses the standard error shape. Query keys live in one file. Mutations invalidate the related keys. |
+| Polling | `useActiveRide()` and `useActivePool()` use `refetchInterval: 4000` while the status is non-terminal; there is no background refetch (NFR-PERF-03). |
+| UI states | Shared `<LoadingState/>`, `<EmptyState/>` and `<ErrorState onRetry/>`. Every query-driven view uses all three (NFR-USA-01). |
+| Domain widgets | `StatusStepper`, `FareBreakdown`, `SeatMeter` (2/3), `ConfirmDialog` (states any fee), `MoneyText` (paisa → "৳66.00") |
+| Validation | The same Zod schemas as the API, from `packages/shared`, via `react-hook-form` + `zodResolver` |
+| Styling | Tailwind CSS, mobile-first, down to 360 px (NFR-USA-05). No component library, to keep the bundle and the explanation small. |
+| Action visibility | Buttons are derived from the status with the same transition table exported by `packages/shared` (NFR-USA-03). The server stays authoritative. |
+
+## 11. Repository layout (npm workspaces monorepo, ADR-0008)
+
+```text
+.
+├── apps/
+│   ├── web/                         # Next.js (UI only)
+│   │   ├── src/app/(auth)/…         # login, signup
+│   │   ├── src/app/(passenger)/…    # ride, rides, rides/[id], wallet
+│   │   ├── src/app/(driver)/…       # driver, driver/requests, driver/pool, driver/history
+│   │   ├── src/components/          # ui/ (states, dialogs), ride/, pool/, wallet/
+│   │   ├── src/lib/                 # api-client.ts, query-keys.ts, hooks/
+│   │   ├── next.config.ts           # rewrites /api/* → API_INTERNAL_URL
+│   │   └── Dockerfile
+│   └── api/                         # Express + TypeScript
+│       ├── prisma/
+│       │   ├── schema.prisma
+│       │   ├── migrations/          # includes hand-written SQL (see ERD §4)
+│       │   └── seed.ts              # zones, distances, adjacency, reference personas
+│       ├── src/
+│       │   ├── app.ts               # builds the Express app (used by server and tests)
+│       │   ├── server.ts            # listen + start expiry job + graceful shutdown
+│       │   ├── config/env.ts        # Zod-validated environment
+│       │   ├── db/                  # prisma client, withTransaction, lock helpers, error mapping
+│       │   ├── middleware/          # request-id, logger, session, require-role, validate, rate-limit, error-handler
+│       │   ├── domain/              # fare.ts, matching.ts, state-machine.ts, money.ts, errors.ts (pure)
+│       │   ├── modules/
+│       │   │   ├── auth/            # auth.routes.ts · auth.controller.ts · auth.service.ts · auth.repository.ts
+│       │   │   ├── zones/  fares/  rides/  drivers/  pools/  wallet/  audit/  health/
+│       │   └── jobs/expire-requests.ts
+│       ├── test/
+│       │   ├── unit/                # domain/* (no DB)
+│       │   ├── integration/         # Supertest against app.ts + real Postgres
+│       │   ├── concurrency/         # parallel accept / cancel races (TC-06, TC-17, TC-18)
+│       │   └── helpers/             # persona factories: nusrat(), rafiq(), shirin(), jashimWithBullet()
+│       └── Dockerfile
+├── packages/
+│   └── shared/                      # Zod schemas, enums, transition tables, money formatting, DTO types
+├── docs/                            # SRS.md · ARCHITECTURE.md · ERD.md · adr/ · tracker.xlsx
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+## 12. Deployment
+
+### 12.1 Now: Docker Compose (NFR-POR-01, DR-09)
+
+```mermaid
+flowchart LR
+    subgraph host["Developer / operator machine"]
+        subgraph net["compose network: dhakapool"]
+            WEB["web<br/>next start (standalone)<br/>:3000"]
+            API["api<br/>node dist/server.js<br/>:4000"]
+            DB[("db<br/>postgres:16-alpine<br/>:5432 · volume pgdata")]
+        end
+    end
+    U["Browser"] -- "localhost:3000" --> WEB
+    WEB -- "http://api:4000" --> API
+    API -- "postgres://db:5432" --> DB
+```
+
+| Service | Image / build | Start-up | Health check | Depends on |
+|---|---|---|---|---|
+| `db` | `postgres:16-alpine`; init script also creates `dhakapool_test` | — | `pg_isready -U $POSTGRES_USER` | — |
+| `api` | `apps/api/Dockerfile` (multi-stage: deps → build → slim runtime) | `prisma migrate deploy` → `prisma db seed` (idempotent upserts) → `node dist/server.js` | `wget -qO- http://localhost:4000/health` | `db: service_healthy` |
+| `web` | `apps/web/Dockerfile` (standalone output), build arg `API_INTERNAL_URL=http://api:4000` | `node server.js` | `wget -qO- http://localhost:3000` | `api: service_healthy` |
+
+**Tests in Docker:** `docker compose run --rm api npm test` runs against `dhakapool_test`. The test setup applies migrations and truncates tables between suites.
+
+### 12.2 Later: free-tier hosting (NFR-POR-04, ADR-0009)
+
+```mermaid
+flowchart LR
+    U["Browser"] -- HTTPS --> V["Vercel<br/>Next.js web<br/>rewrites /api/* →"]
+    V -- HTTPS --> R["Railway<br/>api container (same Dockerfile)"]
+    R -- "pooled connection (app)" --> S[("Supabase Postgres")]
+    R -. "direct connection (migrations)" .-> S
+```
+
+**Caveats to verify at deploy time (they are recorded in ADR-0009):**
+- **Railway:** its free offering has changed over time (trial credit versus a paid Hobby plan). The PRD forbids paying, so if no free option exists, the API goes to Render's free web service and the cold start is documented.
+- **Supabase:**
+  - The free project pauses after about a week of inactivity, so it has to be woken before the demo.
+  - Prisma uses the pooler URL (`DATABASE_URL`, `?pgbouncer=true`) for the app and the direct URL (`DIRECT_URL`) for `migrate deploy`.
+  - Interactive transactions and `FOR UPDATE` still work, because a transaction holds its pooled connection.
+- **Vercel:** `API_INTERNAL_URL` must be set at build time, because rewrites are compiled into the build.
+
+### 12.3 Configuration (`.env.example`)
+
+| Variable | Example | Used by |
+|---|---|---|
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `dhakapool` / `change-me` / `dhakapool` | db |
+| `DATABASE_URL` | `postgresql://dhakapool:change-me@db:5432/dhakapool` | api |
+| `DIRECT_URL` | same as `DATABASE_URL` locally | api (migrations) |
+| `TEST_DATABASE_URL` | `…/dhakapool_test` | api tests |
+| `API_PORT` | `4000` | api |
+| `WEB_ORIGIN` | `http://localhost:3000` | api (CORS) |
+| `API_INTERNAL_URL` | `http://api:4000` | web (build + server) |
+| `NODE_ENV` · `LOG_LEVEL` | `production` · `info` | api, web |
+| `SESSION_TTL_HOURS` · `COOKIE_SECURE` · `BCRYPT_COST` | `168` · `false` · `12` | api |
+| `FARE_BASE_PAISA` · `FARE_PER_KM_PAISA` · `FARE_POOL_DISCOUNT_BPS` · `CANCELLATION_FEE_PAISA` | `3000` · `1500` · `2000` · `2000` | api (BR-11) |
+| `REQUEST_EXPIRY_MINUTES` · `POOL_JOIN_WINDOW_MINUTES` · `NO_SHOW_WAIT_MINUTES` | `15` · `10` · `5` | api (A-13, BR-02, FR-DRV-12) |
+| `SEED_DEMO_PASSWORD` | `TeslaPool#2026` (demo only, documented in README) | seed |
+
+## 13. Testing architecture (DR-10, NFR-MNT-04, ADR-0011)
+
+| Level | Tool | Scope | Examples |
+|---|---|---|---|
+| Unit | Vitest | `domain/*`, pure and fast | TC-03, TC-08, TC-10, TC-12, TC-20 |
+| Integration | Vitest + Supertest on `app.ts` + **real Postgres** | Endpoints, transactions, constraints, authorization | TC-01, TC-02, TC-04, TC-05, TC-09, TC-13…TC-16, TC-26… |
+| Concurrency | Vitest + `Promise.all` over real HTTP calls, repeated ≥ 20 times | Races against real locks | TC-06, TC-17, TC-18 |
+| Manual / E2E | Scripted walkthrough (video), optional Playwright | UI states, Docker | TC-36, TC-41 |
+
+Concurrency tests are only meaningful against the real database engine. That is why there are no mocks or SQLite for integration tests. Test helpers create the reference personas (SRS §1.3.4), so test names and failure messages use the same domain language as the requirements.
+
+## 14. Traceability: SRS → architecture
+
+| SRS area | Where it lives |
+|---|---|
+| BR-10…14 fares | `domain/fare.ts`, `fares` module, `fares` table (ERD) |
+| BR-02 matching | `domain/matching.ts`, `pools.service.addMember` |
+| §5 state machines, BR-06 | `domain/state-machine.ts` (+ `packages/shared` for the UI), CAS in repositories |
+| NFR-CON-01…05 | §7 of this doc, `db/lock.ts`, ERD §4 hand-written SQL |
+| NFR-SEC-01…09 | §8, `middleware/*`, `auth` module |
+| FR-HIST-01…04 | `audit` module, `status_history` table + append-only trigger |
+| FR-PAY-*, NFR-CON-05 | `wallet` module, `wallets` / `wallet_transactions` / `payments` tables |
+| NFR-REL-01…04, NFR-OBS-* | §9, `jobs/expire-requests.ts`, `/health` |
+| NFR-POR-*, DR-09 | §12, `docker-compose.yml`, Dockerfiles, `.env.example` |
+| DC-01…07, DR-07 | [ADRs](adr/README.md) |
