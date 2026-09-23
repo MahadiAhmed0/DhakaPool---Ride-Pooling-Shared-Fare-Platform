@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ERD-001 |
-| Version | 0.2 (Draft for review) |
+| Version | 0.3 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS §7 Data requirements](SRS.md#7-data-requirements), [Architecture §7](ARCHITECTURE.md#7-consistency--concurrency-strategy-nfr-con-0106-adr-0006) |
 | DBMS / access | PostgreSQL 16 via Prisma ([ADR-0002](adr/0002-postgresql.md), [ADR-0004](adr/0004-prisma-with-hand-written-integrity-sql.md)) |
@@ -12,6 +12,7 @@
 |---|---|---|
 | 0.1 | 2026-09-24 | Initial physical model: 15 tables, enums, constraints, indexes, worked data example, design rationale |
 | 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): `users.gender`, `ride_requests.same_gender_only`, `pools.gender_restriction`, new enums, CHECK constraint, invariant, seed genders |
+| 0.3 | 2026-09-24 | Synced with the implemented schema: `wallet_transactions.reason` (records the SEED opening balance), `status_history.id` is an auto-increment bigint, migration file names |
 
 ---
 
@@ -176,10 +177,11 @@ erDiagram
         bigint amount_paisa "signed, never 0"
         bigint balance_after_paisa
         uuid ride_request_id FK
+        varchar reason "e.g. SEED opening balance"
         timestamptz created_at
     }
     status_history {
-        bigint id PK "identity: total order"
+        bigint id PK "auto-increment: total order"
         audit_entity entity_type
         uuid entity_id "polymorphic, no FK"
         varchar from_status
@@ -230,12 +232,12 @@ Reason codes are stored as varchar so that adding one needs no migration: `cance
 | **fares** | What was charged and why | The rate snapshot (base, per-km, bps, distance, seats, pooled) makes every fare re-computable by hand, forever (FR-FARE-03). `UNIQUE(ride_request_id, type)` allows one ride fare and at most one cancellation fee. For a fee row, the breakdown columns are 0 and `total_paisa` is the fee. | FR-FARE-*, BR-10…13 |
 | **payments** | How a charge was settled | `method` can differ from the ride's chosen method, because TeslaPay falls back to cash when the balance is short (A-14). `collected_by_id` records the driver who took the cash. | FR-PAY-03/04, BR-15/16 |
 | **wallets** | TeslaPay balance per passenger | `CHECK (balance_paisa >= 0)`. The balance is updated with a guarded `UPDATE … WHERE balance_paisa >= amount`. | FR-PAY-01, FR-PAY-06 |
-| **wallet_transactions** | Append-only ledger | A signed amount (the sign is checked against the type), plus `balance_after_paisa` for easy audit. Invariant: **Σ amount = wallet balance**. The seed balance is itself a `TOPUP` row with reason SEED. | FR-PAY-02…06, NFR-CON-05 |
+| **wallet_transactions** | Append-only ledger | A signed amount (the sign is checked against the type), plus `balance_after_paisa` for easy audit. Invariant: **Σ amount = wallet balance**. The seed balance is itself a `TOPUP` row with `reason = 'SEED'` (the nullable `reason` column describes non-ride entries). | FR-PAY-02…06, NFR-CON-05 |
 | **status_history** | Audit trail for every lifecycle change | Polymorphic (`entity_type` + `entity_id`) so that rides, pools and driver availability share one timeline format, which means there is no FK on `entity_id`. `bigint identity` gives a total order even for same-millisecond events. An **append-only trigger** blocks UPDATE and DELETE. | FR-HIST-01…04 |
 
 ### Column conventions
 
-- **IDs.** UUIDs (`gen_random_uuid()`) for business rows. They are not guessable, which is defence in depth for authorization but never a substitute for it. `status_history` uses `bigint identity` instead.
+- **IDs.** UUIDs (`gen_random_uuid()`) for business rows. They are not guessable, which is defence in depth for authorization but never a substitute for it. `status_history` uses an auto-increment `bigint` instead.
 - **Money.** `bigint`, in paisa, with a `_paisa` suffix in every column name (BR-14, D-05). Prisma maps these to JS `bigint`. Repositories convert them to `number` at the boundary, which is safe because every realistic amount is below 2^53.
 - **Time.** `timestamptz(3)`, stored in UTC and displayed in Asia/Dhaka (A-16).
 - **Foreign keys.** `ON DELETE RESTRICT` everywhere, because ride, fare, payment and audit data is never hard-deleted (SRS §7). The one exception is `sessions → users CASCADE`.
@@ -260,6 +262,8 @@ Prisma's schema language can express PKs, FKs, unique and regular indexes. It **
 | Composite PKs `(from_zone_code, to_zone_code)`, `(zone_code, adjacent_zone_code)` | zone_distances, zone_adjacency |
 
 ### 4.2 Hand-written SQL migration (`…_integrity_constraints/migration.sql`)
+
+Implemented in `apps/api/prisma/migrations/20260923232901_integrity_constraints/migration.sql`; the schema itself is `20260923232834_init`.
 
 ```sql
 -- CHECK constraints -----------------------------------------------------------
