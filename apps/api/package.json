@@ -10,6 +10,7 @@
     "prebuild": "prisma generate",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
+    "start:prod": "prisma migrate deploy && node dist/server.js",
     "pretypecheck": "prisma generate",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
