@@ -13,11 +13,12 @@
   },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "dev:api": "npm run dev -w @dhakapool/api",
-    "dev:web": "npm run dev -w @dhakapool/web",
+    "build:shared": "npm run build -w @dhakapool/shared",
+    "dev:api": "npm run build:shared && npm run dev -w @dhakapool/api",
+    "dev:web": "npm run build:shared && npm run dev -w @dhakapool/web",
     "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
+    "test": "npm run build:shared && npm run test --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

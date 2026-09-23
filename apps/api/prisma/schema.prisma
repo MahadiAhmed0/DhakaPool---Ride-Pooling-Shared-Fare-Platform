@@ -1,0 +1,13 @@
+// Prisma schema for the Dhaka Tesla Pool database (ERD.md).
+// The tables are added in the database-schema step; this file only configures the client for now.
+
+generator client {
+  provider             = "prisma-client"
+  output               = "../src/generated/prisma"
+  moduleFormat         = "esm"
+  importFileExtension  = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
