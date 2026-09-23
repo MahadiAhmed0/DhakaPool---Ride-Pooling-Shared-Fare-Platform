@@ -8,7 +8,7 @@
 | Standard | ISO/IEC/IEEE 29148:2018 — Software Requirements Specification (tailored for an MVP) |
 | Product | Dhaka Tesla Pool — ride-pooling & shared-fare platform (MVP) |
 | Source brief | *Dhaka Tesla Pool PRD — Internship Challenge* (RoBenDevs) — referenced as **PRD** |
-| Version | 0.1 (Draft for review) |
+| Version | 0.2 (Draft for review) |
 | Status | Draft |
 | Author | Golam Mahadi Ahmed |
 | Traceability workbook | [`DhakaPool_SRS_Tracker.xlsx`](DhakaPool_SRS_Tracker.xlsx) |
@@ -18,6 +18,7 @@
 | Version | Date | Author | Change |
 |---|---|---|---|
 | 0.1 | 2026-09-23 | Golam Mahadi Ahmed | Initial draft: scope, functional/non-functional requirements, state machines, business rules, assumptions |
+| 0.2 | 2026-09-24 | Golam Mahadi Ahmed | Aligned with the architecture phase: §7 data model synced to [ERD.md](ERD.md) (added `sessions`; `driver_status` renamed `driver_profiles`; zone code as key; capacity snapshot on pools). Decisions D-13…D-23 recorded with ADR links. Open issues OI-01…OI-03 resolved. |
 
 ---
 
@@ -102,7 +103,7 @@ flowchart LR
     A -->|SQL| DB[(Relational database)]
 ```
 
-The detailed architecture diagram and ERD are delivered separately (DR-06). They shall broadly match this context.
+The detailed architecture ([ARCHITECTURE.md](ARCHITECTURE.md)) and ERD ([ERD.md](ERD.md)) are delivered separately (DR-06). They shall broadly match this context.
 
 #### 1.3.2 Product functions (summary)
 
@@ -173,6 +174,9 @@ The personas below come from the PRD's scenario (PRD §1) and are used consisten
 | R3 | Conventional Commits 1.0.0 (commit convention used by PRD §11) |
 | R4 | OWASP Top 10 (2021) and OWASP API Security Top 10 (2023) — security baseline for NFR-SEC |
 | R5 | `DhakaPool_SRS_Tracker.xlsx` — requirements traceability workbook (this repo) |
+| R6 | [ARCHITECTURE.md](ARCHITECTURE.md) — DTP-ARC-001 architecture description |
+| R7 | [ERD.md](ERD.md) — DTP-ERD-001 physical data model |
+| R8 | [adr/](adr/README.md) — Architecture Decision Records 0001–0012 |
 
 ---
 
@@ -441,30 +445,32 @@ Rates: base 3000, per km 1500, discount 20 % of the distance charge.
 
 ## 7. Data requirements
 
-This section is the conceptual data model. The physical ERD with types, indexes and constraint names is delivered with the architecture (DR-06). Every entity below shall exist in some form, and every listed constraint shall be enforced **by the database**, not only in application code.
+This section is the conceptual data model. The physical model, with column types, constraint names, indexes and a worked data example, is in **[ERD.md](ERD.md)** (DR-06). Every entity below shall exist in some form, and every listed constraint shall be enforced **by the database**, not only in application code.
 
 | Entity | Key attributes | Integrity constraints |
 |---|---|---|
 | **users** | id, full_name, email, phone, password_hash, role (PASSENGER / DRIVER), created_at | email and phone unique; role enum; password stored only as a hash |
-| **vehicles** (Teslas) | id, driver_id, name, plate, capacity | exactly one vehicle per driver (unique driver_id); capacity 1–6 (CHECK); plate unique |
-| **driver_status** | driver_id, availability (ONLINE / OFFLINE), current_zone_id, updated_at | FK to users (role DRIVER), FK to zones |
-| **zones** | id, code, name, lat, lng | code unique |
-| **zone_distances** | from_zone_id, to_zone_id, distance_m | PK (from, to); from ≠ to; distance_m > 0; both directions stored |
-| **zone_adjacency** | zone_id, adjacent_zone_id | PK pair; symmetric; no self-pairs |
-| **ride_requests** | id, passenger_id, pickup_zone_id, destination_zone_id, seats, pool_opt_in, payment_method, status, estimated_fare_paisa, requested_at, expires_at, timestamps | pickup ≠ destination; seats ≥ 1; status enum; **at most one active request per passenger** (partial unique index) |
-| **pools** | id, driver_id, vehicle_id, pickup_zone_id, status, occupied_seats, is_private, created_at, arrived_at, started_at, completed_at, cancelled_at | **0 ≤ occupied_seats ≤ capacity** (CHECK, with capacity copied from the vehicle or checked by a trigger); **at most one active pool per driver** (partial unique index); status enum |
-| **pool_members** | pool_id, ride_request_id, seats, joined_at, left_at, dropoff_order | FK both; **a request is in at most one active pool** (partial unique index) |
-| **fares** | ride_request_id, type (RIDE / CANCELLATION_FEE), base_paisa, distance_m, per_km_paisa, distance_charge_paisa, discount_bps, discount_paisa, seats, pooled, total_paisa, locked_at | all amounts ≥ 0; one RIDE fare per request; immutable after lock |
-| **payments** | id, ride_request_id, method (CASH / TESLAPAY), status (PENDING_CASH / PAID / UNPAID), amount_paisa, paid_at, collected_by | amount > 0 |
+| **sessions** | id, user_id, token_hash, expires_at, last_seen_at, revoked_at | token_hash unique; only the SHA-256 of the cookie token is stored (ADR-0005) |
+| **driver_profiles** | user_id, availability (ONLINE / OFFLINE), current_zone_code, updated_at | exists only for drivers; ONLINE ⇒ current zone set (CHECK); the row locked first by driver commands |
+| **vehicles** (Teslas) | id, driver_id → driver_profiles, name, plate, capacity | exactly one vehicle per driver (unique driver_id); capacity 1–6 (CHECK); plate unique |
+| **zones** | code (PK, e.g. BAN), name, lat, lng | natural key |
+| **zone_distances** | from_zone_code, to_zone_code, distance_m | PK (from, to); from ≠ to; distance_m > 0; both directions stored |
+| **zone_adjacency** | zone_code, adjacent_zone_code | PK pair; symmetric; no self-pairs |
+| **ride_requests** | id, passenger_id, pickup_zone_code, destination_zone_code, seats, pool_opt_in, payment_method, status, estimated_fare_paisa, requested_at, expires_at, cancel_reason, timestamps | pickup ≠ destination; seats 1–6; status enum; **at most one active request per passenger** (partial unique index) |
+| **pools** | id, driver_id → driver_profiles, vehicle_id, pickup_zone_code, status, capacity (snapshot of the vehicle's), occupied_seats, is_private, lifecycle timestamps | **0 ≤ occupied_seats ≤ capacity** (CHECK on the same row); **at most one active pool per driver** (partial unique index); status enum |
+| **pool_members** | pool_id, ride_request_id, seats, joined_at, left_at, dropoff_order, dropped_off_at | FK both; unique (pool, ride); **a request is in at most one active pool** (partial unique index on left_at IS NULL) |
+| **fares** | ride_request_id, type (RIDE / CANCELLATION_FEE), base_paisa, distance_m, per_km_paisa, distance_charge_paisa, discount_bps, discount_paisa, seats, pooled, total_paisa, locked_at | all amounts ≥ 0; discount ≤ distance charge; unique (ride, type); immutable after lock |
+| **payments** | id, fare_id, ride_request_id, method (CASH / TESLAPAY), status (PENDING_CASH / PAID / UNPAID), amount_paisa, wallet_transaction_id, collected_by_id, paid_at | amount > 0; one payment per fare |
 | **wallets** | id, passenger_id, balance_paisa | one per passenger; **balance ≥ 0** (CHECK) |
-| **wallet_transactions** | id, wallet_id, type (TOPUP / RIDE_PAYMENT / CANCELLATION_FEE), amount_paisa (signed), balance_after_paisa, ride_request_id?, created_at | append-only; sum of entries = balance |
-| **status_history** | id, entity_type (RIDE_REQUEST / POOL / DRIVER), entity_id, from_status, to_status, actor_user_id?, actor_role (PASSENGER / DRIVER / SYSTEM), reason, created_at | append-only; indexed by (entity_type, entity_id, created_at) |
+| **wallet_transactions** | id, wallet_id, type (TOPUP / RIDE_PAYMENT / CANCELLATION_FEE), amount_paisa (signed), balance_after_paisa, ride_request_id?, created_at | sign matches type (CHECK); **append-only** (trigger); sum of entries = balance |
+| **status_history** | id (bigint identity), entity_type (RIDE_REQUEST / POOL / DRIVER), entity_id, from_status, to_status, actor_user_id?, actor_role (PASSENGER / DRIVER / SYSTEM), reason, metadata, created_at | **append-only** (trigger); indexed by (entity_type, entity_id, created_at) |
 
-**Indexes required** (NFR-PERF-02):
-- `ride_requests (status, pickup_zone_id, requested_at)` for the driver's request list
-- `ride_requests (passenger_id, requested_at desc)` for passenger history
-- `pools (driver_id, status)`
-- `status_history (entity_type, entity_id, created_at)`
+**Indexes required** (NFR-PERF-02; full list in [ERD §5](ERD.md#5-indexes-nfr-perf-02)):
+- `ride_requests (pickup_zone_code, requested_at) WHERE status = 'REQUESTED'` for the driver's request feed
+- `ride_requests (expires_at) WHERE status = 'REQUESTED'` for the expiry sweeper
+- `ride_requests (passenger_id, created_at desc)` for passenger history
+- `pools (driver_id, created_at desc)` for driver history
+- `status_history (entity_type, entity_id, created_at)` for timelines
 
 **Retention:** ride, fare, payment and audit data is kept indefinitely in the MVP. Nothing is hard-deleted.
 
@@ -723,7 +729,17 @@ The workbook maps each requirement to its method and test case IDs.
 | D-10 | The API style is REST with action sub-resources for transitions. | GraphQL; RPC | Simple resources, explicit guarded commands, and easy to test with curl or HTTP clients. |
 | D-11 | Status updates use polling. | WebSockets, SSE | No extra infrastructure; enough for the MVP (A-11). |
 | D-12 | There are two linked state machines (ride request and pool). | A single ride status | Pooled trips have passenger-level and trip-level events that cannot share one status. |
-| D-13 | PostgreSQL is recommended as the DBMS. The final choice and justification belong to the architecture phase. | MySQL, SQLite | CHECK constraints, partial unique indexes, row locks and transactional DDL directly support the integrity rules. |
+| D-13 | The DBMS is PostgreSQL 16 ([ADR-0002](adr/0002-postgresql.md)). | MySQL, SQLite, MongoDB | CHECK constraints, partial unique indexes, row locks and transactional DDL directly support the integrity rules. |
+| D-14 | The system is a modular monolith: a Next.js web app, one Express API and PostgreSQL ([ADR-0001](adr/0001-modular-monolith.md)). | Next.js-only; microservices | Every invariant fits in one ACID transaction, with no distributed consistency, as PRD §9 asks. |
+| D-15 | The API is built with Express 5 + TypeScript ([ADR-0003](adr/0003-express-typescript.md)). | NestJS, Fastify | No hidden control flow, a large ecosystem, and explicit layering that is simple to trace and maintain. |
+| D-16 | Data access uses Prisma, with CHECK constraints, partial unique indexes and triggers in hand-written SQL migrations ([ADR-0004](adr/0004-prisma-with-hand-written-integrity-sql.md)). | Drizzle, Knex, TypeORM | Type-safe DX for most queries. Raw SQL is visible exactly where the integrity guarantees are implemented. |
+| D-17 | Auth uses opaque DB-backed sessions in an httpOnly cookie, behind a same-origin Next.js `/api` proxy ([ADR-0005](adr/0005-db-sessions-and-same-origin-proxy.md)). | JWT; auth library | Real logout (FR-AUTH-03); tokens stored hashed; first-party cookies across different hosts. |
+| D-18 | Concurrency uses row locks in the fixed order driver → pool → ride → wallet, compare-and-set transitions and DB constraints. Expiry is checked in the accept CAS, plus an in-process sweeper ([ADR-0006](adr/0006-concurrency-row-locks-cas-constraints.md)). | Optimistic versioning; SERIALIZABLE; Redis lock | Deterministic outcome for the last-seat race, with no extra infrastructure. |
+| D-19 | The repo is an npm-workspaces monorepo with a shared Zod package ([ADR-0008](adr/0008-npm-workspaces-monorepo.md)). | Turborepo/Nx; two repos | One source for schemas, enums and transition tables across web and API. |
+| D-20 | Deployment is Docker Compose now, then Vercel + Railway + Supabase on free tiers, with a verify-no-payment guardrail ([ADR-0009](adr/0009-docker-first-deployment.md)). | Render-only; Vercel + Render + Neon | The primary run path (`docker compose up`) never depends on third parties, and the same images run in the cloud. |
+| D-21 | Tests use Vitest + Supertest against a real PostgreSQL test DB ([ADR-0011](adr/0011-testing-vitest-supertest-real-postgres.md)). | Jest; mocks/SQLite; Testcontainers | Locks and constraints can only be proven against the real engine. |
+| D-22 | The frontend uses the Next.js App Router, TanStack Query (polling) and Tailwind CSS ([ADR-0012](adr/0012-frontend-nextjs-tanstack-query-tailwind.md)). | Vite + React Router; SWR; component libraries | Built-in loading/error states and polling; a small, maintainable UI stack. |
+| D-23 | Schema choices: a `pool_members` link table, `pools.capacity` snapshot, a `driver_profiles` table, zone code as natural key, UUID ids, and a polymorphic append-only `status_history` ([ERD §8](ERD.md#8-design-rationale)). | `ride_requests.pool_id`; CHECK via trigger; driver columns on users | Row-local CHECK for capacity, re-matching history, driver-only ownership that is structural. |
 
 ### 13.3 Reference data — zones, distances, adjacency
 
@@ -812,8 +828,8 @@ The full reasoning belongs in the README bonus section.
 
 ### 13.7 Open issues
 
-| ID | Issue | Resolve in |
-|---|---|---|
-| OI-01 | Choose the backend framework, ORM, auth mechanism, test framework, styling and hosting, each justified per DC-07. | Architecture phase |
-| OI-02 | Choose the concrete concurrency mechanism (pessimistic `SELECT … FOR UPDATE` versus a conditional update guarded by CHECK) and document it. | Architecture phase |
-| OI-03 | Decide whether the request-expiry sweeper runs as an in-process interval or lazily on read (NFR-REL-04 requires lazy correctness either way). | Architecture phase |
+| ID | Issue | Resolve in | Status / resolution |
+|---|---|---|---|
+| OI-01 | Choose the backend framework, ORM, auth mechanism, test framework, styling and hosting, each justified per DC-07. | Architecture phase | **Resolved 2026-09-24:** D-14…D-22, ADR-0001…0012 |
+| OI-02 | Choose the concrete concurrency mechanism (pessimistic `SELECT … FOR UPDATE` versus a conditional update guarded by CHECK) and document it. | Architecture phase | **Resolved 2026-09-24:** both, in layers (D-18, ADR-0006) |
+| OI-03 | Decide whether the request-expiry sweeper runs as an in-process interval or lazily on read (NFR-REL-04 requires lazy correctness either way). | Architecture phase | **Resolved 2026-09-24:** expiry is checked in the accept CAS, plus a 60 s in-process sweeper (D-18) |
