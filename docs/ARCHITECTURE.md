@@ -3,15 +3,16 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.2 (Draft for review) |
+| Version | 0.3 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
-| Implements | [SRS DTP-SRS-001 v0.2](SRS.md) |
+| Implements | [SRS DTP-SRS-001 v0.3](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
 
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-24 | Initial architecture: containers, module layout, key flows, concurrency strategy, security, deployment |
 | 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): matching reason, pool restriction maintenance, data minimisation |
+| 0.3 | 2026-09-24 | Synced with the project setup: `config/rules.ts` and `logger.ts` in the layout, Node-based container health checks on `node:24-bookworm-slim` images, `DB_PORT` variable |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -401,7 +402,8 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 │       ├── src/
 │       │   ├── app.ts               # builds the Express app (used by server and tests)
 │       │   ├── server.ts            # listen + start expiry job + graceful shutdown
-│       │   ├── config/env.ts        # Zod-validated environment
+│       │   ├── config/              # env.ts (validated environment) · rules.ts (business constants)
+│       │   ├── logger.ts            # pino logger with redaction
 │       │   ├── db/                  # prisma client, withTransaction, lock helpers, error mapping
 │       │   ├── middleware/          # request-id, logger, session, require-role, validate, rate-limit, error-handler
 │       │   ├── domain/              # fare.ts, matching.ts, state-machine.ts, money.ts, errors.ts (pure)
@@ -444,8 +446,8 @@ flowchart LR
 | Service | Image / build | Start-up | Health check | Depends on |
 |---|---|---|---|---|
 | `db` | `postgres:16-alpine`; init script also creates `dhakapool_test` | — | `pg_isready -U $POSTGRES_USER` | — |
-| `api` | `apps/api/Dockerfile` (multi-stage: deps → build → slim runtime) | `prisma migrate deploy` → `prisma db seed` (idempotent upserts) → `node dist/server.js` | `wget -qO- http://localhost:4000/health` | `db: service_healthy` |
-| `web` | `apps/web/Dockerfile` (standalone output), build arg `API_INTERNAL_URL=http://api:4000` | `node server.js` | `wget -qO- http://localhost:3000` | `api: service_healthy` |
+| `api` | `apps/api/Dockerfile` (multi-stage on `node:24-bookworm-slim`: build → runtime) | `prisma migrate deploy` → `prisma db seed` (idempotent upserts) → `node dist/server.js` | Node `fetch('http://localhost:4000/health')` (the slim image has no curl or wget) | `db: service_healthy` |
+| `web` | `apps/web/Dockerfile` (standalone output on `node:24-bookworm-slim`), build arg `API_INTERNAL_URL=http://api:4000` | `node apps/web/server.js` | Node `fetch('http://localhost:3000')` | `api: service_healthy` |
 
 **Tests in Docker:** `docker compose run --rm api npm test` runs against `dhakapool_test`. The test setup applies migrations and truncates tables between suites.
 
@@ -478,6 +480,7 @@ flowchart LR
 | `API_PORT` | `4000` | api |
 | `WEB_ORIGIN` | `http://localhost:3000` | api (CORS) |
 | `API_INTERNAL_URL` | `http://api:4000` | web (build + server) |
+| `DB_PORT` | `5432` (host port; change if already in use) | db |
 | `NODE_ENV` · `LOG_LEVEL` | `production` · `info` | api, web |
 | `SESSION_TTL_HOURS` · `COOKIE_SECURE` · `BCRYPT_COST` | `168` · `false` · `12` | api |
 | `FARE_BASE_PAISA` · `FARE_PER_KM_PAISA` · `FARE_POOL_DISCOUNT_BPS` · `CANCELLATION_FEE_PAISA` | `3000` · `1500` · `2000` · `2000` | api (BR-11) |

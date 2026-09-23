@@ -10,7 +10,7 @@
 
 | Version | Date | Change |
 |---|---|---|
-| 0.1 | 2026-09-24 | Initial physical model: 14 tables, enums, constraints, indexes, worked data example, design rationale |
+| 0.1 | 2026-09-24 | Initial physical model: 15 tables, enums, constraints, indexes, worked data example, design rationale |
 | 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): `users.gender`, `ride_requests.same_gender_only`, `pools.gender_restriction`, new enums, CHECK constraint, invariant, seed genders |
 
 ---
