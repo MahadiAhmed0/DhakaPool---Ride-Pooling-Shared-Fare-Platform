@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ERD-001 |
-| Version | 0.1 (Draft for review) |
+| Version | 0.2 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS §7 Data requirements](SRS.md#7-data-requirements), [Architecture §7](ARCHITECTURE.md#7-consistency--concurrency-strategy-nfr-con-0106-adr-0006) |
 | DBMS / access | PostgreSQL 16 via Prisma ([ADR-0002](adr/0002-postgresql.md), [ADR-0004](adr/0004-prisma-with-hand-written-integrity-sql.md)) |
@@ -11,6 +11,7 @@
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-24 | Initial physical model: 14 tables, enums, constraints, indexes, worked data example, design rationale |
+| 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): `users.gender`, `ride_requests.same_gender_only`, `pools.gender_restriction`, new enums, CHECK constraint, invariant, seed genders |
 
 ---
 
@@ -46,6 +47,7 @@ erDiagram
         varchar phone UK
         varchar password_hash "bcrypt"
         user_role role "PASSENGER or DRIVER"
+        gender gender "FEMALE, MALE, PREFER_NOT_TO_SAY"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -94,6 +96,7 @@ erDiagram
         varchar destination_zone_code FK
         smallint seats "CHECK 1 to 6"
         boolean pool_opt_in
+        boolean same_gender_only "requires pool_opt_in"
         payment_method payment_method
         ride_status status
         bigint estimated_fare_paisa "solo estimate"
@@ -114,6 +117,7 @@ erDiagram
         smallint capacity "snapshot of vehicle capacity"
         smallint occupied_seats "CHECK 0 to capacity"
         boolean is_private "first member opted out"
+        gender_restriction gender_restriction "NONE, FEMALE_ONLY, MALE_ONLY"
         varchar cancel_reason
         timestamptz created_at
         timestamptz arrived_at
@@ -195,6 +199,8 @@ erDiagram
 | Enum | Values | Used by |
 |---|---|---|
 | `user_role` | `PASSENGER`, `DRIVER` | users.role |
+| `gender` | `FEMALE`, `MALE`, `PREFER_NOT_TO_SAY` | users.gender (default `PREFER_NOT_TO_SAY`) |
+| `gender_restriction` | `NONE`, `FEMALE_ONLY`, `MALE_ONLY` | pools.gender_restriction (default `NONE`, BR-18) |
 | `driver_availability` | `ONLINE`, `OFFLINE` | driver_profiles.availability |
 | `ride_status` | `REQUESTED`, `MATCHED`, `DRIVER_ARRIVED`, `STARTED`, `COMPLETED`, `CANCELLED`, `EXPIRED` | ride_requests.status (SRS §5.1) |
 | `pool_status` | `OPEN`, `DRIVER_ARRIVED`, `STARTED`, `COMPLETED`, `CANCELLED` | pools.status (SRS §5.2) |
@@ -211,15 +217,15 @@ Reason codes are stored as varchar so that adding one needs no migration: `cance
 
 | Table | Purpose | Key design notes | SRS |
 |---|---|---|---|
-| **users** | One row per person; the role decides which app they see | E-mail is normalized to lower case before insert, so the unique index is effectively case-insensitive. Each person has a single role (A-06). | FR-AUTH-01…04 |
+| **users** | One row per person; the role decides which app they see | E-mail is normalized to lower case before insert, so the unique index is effectively case-insensitive. Each person has a single role (A-06). `gender` is optional, self-declared and used only for matching; it is never exposed to other passengers (A-19, A-20). | FR-AUTH-01…04, FR-PAX-11 |
 | **sessions** | Server-side sessions for cookie auth | Only a **hash** of the token is stored, so a DB leak doesn't reveal usable cookies. `revoked_at` makes logout real (FR-AUTH-03). `ON DELETE CASCADE` from users. | FR-AUTH-02/03, NFR-SEC-06 |
 | **driver_profiles** | Driver-only state: availability and current zone | Exists only for drivers, so `vehicles` and `pools` reference it rather than `users`, and a passenger can never own a Tesla or a pool, structurally. **This row is the first lock** in every driver command (Architecture §7). CHECK: ONLINE ⇒ zone set. | FR-DRV-02/03 |
 | **vehicles** | The Tesla and its fixed capacity | `UNIQUE(driver_id)` enforces one Tesla per driver (A-03). Capacity is 1–6. | FR-DRV-01 |
 | **zones** | Fixed Dhaka areas | A natural key (`code` = `BAN`) keeps rows readable when inspecting data, and the codes never change. Lat/long are informational only. | FR-PAX-01, BR-08 |
 | **zone_distances** | Distance table used for fares | Both directions are stored, so lookups need no `LEAST/GREATEST`. The seed asserts symmetry. Distances are integer metres. | BR-09 |
 | **zone_adjacency** | Neighbour list used by matching | Symmetric pairs are stored explicitly (A-01, BR-08). | BR-02 |
-| **ride_requests** | One passenger's trip request and its lifecycle | `estimated_fare_paisa` = the solo estimate at request time. `requested_at` and `expires_at` are reset when a driver cancels a pool and the ride returns to REQUESTED (RT-07). Partial unique index: one active ride per passenger. | FR-PAX-*, §5.1 |
-| **pools** | One Tesla trip: driver, vehicle, pickup zone, seats | `capacity` is **copied from the vehicle** at creation, so that `CHECK (occupied_seats <= capacity)` can live on the same row; a CHECK cannot read another table. `occupied_seats` is a maintained counter, updated only under the pool row lock. Partial unique index: one active pool per driver. | FR-POOL-*, §5.2 |
+| **ride_requests** | One passenger's trip request and its lifecycle | `estimated_fare_paisa` = the solo estimate at request time. `requested_at` and `expires_at` are reset when a driver cancels a pool and the ride returns to REQUESTED (RT-07). Partial unique index: one active ride per passenger. `same_gender_only` records the passenger's co-rider preference. | FR-PAX-*, §5.1 |
+| **pools** | One Tesla trip: driver, vehicle, pickup zone, seats | `capacity` is **copied from the vehicle** at creation, so that `CHECK (occupied_seats <= capacity)` can live on the same row; a CHECK cannot read another table. `occupied_seats` is a maintained counter, updated only under the pool row lock. Partial unique index: one active pool per driver. `gender_restriction` is maintained under the pool row lock and recalculated when a member leaves (BR-18, FR-POOL-12). | FR-POOL-*, §5.2 |
 | **pool_members** | Which ride is in which pool, and with how many seats | Not a `pool_id` column on `ride_requests`, because a ride can leave one pool (driver cancels) and join another. Membership also has its own facts: seats, joined/left, drop-off order. Partial unique index: at most one *active* membership per ride (FR-POOL-09). | FR-POOL-09/10 |
 | **fares** | What was charged and why | The rate snapshot (base, per-km, bps, distance, seats, pooled) makes every fare re-computable by hand, forever (FR-FARE-03). `UNIQUE(ride_request_id, type)` allows one ride fare and at most one cancellation fee. For a fee row, the breakdown columns are 0 and `total_paisa` is the fee. | FR-FARE-*, BR-10…13 |
 | **payments** | How a charge was settled | `method` can differ from the ride's chosen method, because TeslaPay falls back to cash when the balance is short (A-14). `collected_by_id` records the driver who took the cash. | FR-PAY-03/04, BR-15/16 |
@@ -266,7 +272,8 @@ ALTER TABLE zone_adjacency  ADD CONSTRAINT zone_adjacency_no_self_check   CHECK 
 ALTER TABLE ride_requests
   ADD CONSTRAINT ride_requests_seats_check          CHECK (seats BETWEEN 1 AND 6),
   ADD CONSTRAINT ride_requests_distinct_zones_check CHECK (pickup_zone_code <> destination_zone_code),
-  ADD CONSTRAINT ride_requests_estimate_check       CHECK (estimated_fare_paisa >= 0);
+  ADD CONSTRAINT ride_requests_estimate_check       CHECK (estimated_fare_paisa >= 0),
+  ADD CONSTRAINT ride_requests_same_gender_check    CHECK (NOT same_gender_only OR pool_opt_in);                -- FR-PAX-11
 
 ALTER TABLE pools
   ADD CONSTRAINT pools_capacity_check       CHECK (capacity BETWEEN 1 AND 6),
@@ -318,6 +325,7 @@ The database cannot express these cheaply, so services uphold them under the poo
 |---|---|
 | `pools.occupied_seats = Σ pool_members.seats` over members with `left_at IS NULL` whose ride is MATCHED, DRIVER_ARRIVED or STARTED | TC-01, TC-06, TC-16 |
 | All active members of a pool share `pools.pickup_zone_code`, and their destinations are pairwise same-or-adjacent (BR-02) | TC-20 |
+| `pools.gender_restriction` = `<G>_ONLY` iff some active member has `same_gender_only` and gender G; then every active member has gender G (BR-18) | TC-47, TC-48 |
 | The ride's status is consistent with the pool's status (e.g. pool STARTED ⇒ members STARTED or COMPLETED) | TC-25 |
 | `wallets.balance_paisa = Σ wallet_transactions.amount_paisa` | TC-26 |
 | Exactly one `status_history` row per transition | TC-30 |
@@ -345,7 +353,7 @@ The database cannot express these cheaply, so services uphold them under the poo
 | Table | Rows |
 |---|---|
 | zones / zone_distances / zone_adjacency | 10 zones, 90 directed distances, 24 directed adjacency pairs (SRS §13.3) |
-| users | **Nusrat**, **Rafiq**, **Shirin** (PASSENGER). **Jashim**, **Kamal** (DRIVER). All use `SEED_DEMO_PASSWORD`. |
+| users | **Nusrat** (FEMALE), **Rafiq** (MALE), **Shirin** (FEMALE) as PASSENGER. **Jashim**, **Kamal** (MALE) as DRIVER. All use `SEED_DEMO_PASSWORD`. |
 | driver_profiles | Jashim OFFLINE, Kamal OFFLINE |
 | vehicles | **Bullet** (Jashim, `DHAKA-TESLA-11`, 3 seats) · **Toofan** (Kamal, `DHAKA-TESLA-22`, 3 seats) |
 | wallets + wallet_transactions | Nusrat ৳500.00 · Rafiq ৳0.00 (pays cash) · Shirin ৳200.00. Each non-zero balance is one `TOPUP` row, reason SEED. |
@@ -363,7 +371,7 @@ State of the database after the driver (Jashim) has dropped off both passengers 
 | r-nus | Nusrat | BAN → MHK | 1 | true | TESLAPAY | COMPLETED | 7500 |
 | r-raf | Rafiq | BAN → GL1 | 1 | true | CASH | COMPLETED | 6750 |
 
-**pools** — `p-1` · driver Jashim · vehicle Bullet · pickup BAN · status COMPLETED · capacity 3 · occupied_seats 0 (both dropped off) · is_private false
+**pools** — `p-1` · driver Jashim · vehicle Bullet · pickup BAN · status COMPLETED · capacity 3 · occupied_seats 0 (both dropped off) · is_private false · gender_restriction NONE
 
 **pool_members**
 

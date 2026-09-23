@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.1 (Draft for review) |
+| Version | 0.2 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.2](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -11,6 +11,7 @@
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-09-24 | Initial architecture: containers, module layout, key flows, concurrency strategy, security, deployment |
+| 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): matching reason, pool restriction maintenance, data minimisation |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -135,7 +136,8 @@ flowchart LR
 ### 5.4 Pure domain layer
 
 - **`fare.ts`** implements BR-10 exactly: `computeFare({ distanceM, seats, pooled, rates }) → { basePaisa, distanceChargePaisa, discountPaisa, farePerSeatPaisa, totalPaisa }`. Integers in, integers out. `roundHalfUp` is implemented on integers, with no floats involved.
-- **`matching.ts`** implements BR-02: `isCompatible(request, pool, members, adjacency, now) → { ok: true } | { ok: false, reason }`. The reasons are `DIFFERENT_PICKUP`, `NOT_OPTED_IN`, `DESTINATION_NOT_ADJACENT`, `JOIN_WINDOW_PASSED`, `NO_SEATS` and `POOL_NOT_OPEN`.
+- **`matching.ts`** implements BR-02: `isCompatible(request, pool, members, adjacency, now) → { ok: true } | { ok: false, reason }`. The reasons are `DIFFERENT_PICKUP`, `NOT_OPTED_IN`, `DESTINATION_NOT_ADJACENT`, `JOIN_WINDOW_PASSED`, `GENDER_RESTRICTED` (BR-18), `NO_SEATS` and `POOL_NOT_OPEN`.
+- **`pool-restriction.ts`** computes `genderRestriction(members) → NONE | FEMALE_ONLY | MALE_ONLY` (BR-18). `pools.service` stores the result on the pool whenever a member joins or leaves, inside the same locked transaction.
 - **`state-machine.ts`** holds the transition tables from SRS §5 as data:
 
 ```ts
@@ -325,7 +327,7 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 | Sessions | On login, generate 32 random bytes (base64url token). The DB stores **SHA-256(token)** in `sessions.token_hash`, never the token. The cookie is `dtp_session` with flags `HttpOnly; SameSite=Lax; Path=/; Max-Age=7d`, plus `Secure` in production. Logout sets `revoked_at` and clears the cookie. Expired or revoked sessions → 401. |
 | Session lookup | Middleware hashes the cookie token, loads the session and user in one indexed query, and attaches `req.user = { id, role }`. `last_seen_at` is updated at most once per 5 min. |
 | Authorization | `requireRole('PASSENGER' \| 'DRIVER')` per route. **Ownership is checked in services**: rides are loaded with `WHERE id = :id AND passenger_id = :me`, and pools with `WHERE id = :id AND driver_id = :me`. Other users' resources return **404** (not 403), so they are not revealed. |
-| Data minimisation | Passenger ride DTOs include `shared` and `coRiderCount` only (A-09). The driver pool DTO includes member names, fares and payment methods (A-10). |
+| Data minimisation | Passenger ride DTOs include `shared`, `coRiderCount` and the pool's `genderRestriction` badge only (A-09). No user's gender is returned to anyone except that user (A-20). The driver pool DTO includes member names, fares, payment methods and the restriction badge, but not members' genders (A-10). |
 | Input validation | Zod schemas from `packages/shared`, `.strict()` (unknown keys rejected). UUID path params are validated. Enums are validated against the shared definitions. |
 | Transport & headers | `helmet()` defaults; JSON body limit 100 kB; `cors({ origin: WEB_ORIGIN, credentials: true })` only matters for direct API access, since the browser uses the proxy. |
 | Rate limiting | `express-rate-limit` on `/api/auth/login` and `/signup`: 10 per minute per IP. Memory store, which is acceptable for one instance and noted in §12. |

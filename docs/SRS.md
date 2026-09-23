@@ -8,7 +8,7 @@
 | Standard | ISO/IEC/IEEE 29148:2018 — Software Requirements Specification (tailored for an MVP) |
 | Product | Dhaka Tesla Pool — ride-pooling & shared-fare platform (MVP) |
 | Source brief | *Dhaka Tesla Pool PRD — Internship Challenge* (RoBenDevs) — referenced as **PRD** |
-| Version | 0.2 (Draft for review) |
+| Version | 0.3 (Draft for review) |
 | Status | Draft |
 | Author | Golam Mahadi Ahmed |
 | Traceability workbook | [`DhakaPool_SRS_Tracker.xlsx`](DhakaPool_SRS_Tracker.xlsx) |
@@ -19,6 +19,7 @@
 |---|---|---|---|
 | 0.1 | 2026-09-23 | Golam Mahadi Ahmed | Initial draft: scope, functional/non-functional requirements, state machines, business rules, assumptions |
 | 0.2 | 2026-09-24 | Golam Mahadi Ahmed | Aligned with the architecture phase: §7 data model synced to [ERD.md](ERD.md) (added `sessions`; `driver_status` renamed `driver_profiles`; zone code as key; capacity snapshot on pools). Decisions D-13…D-23 recorded with ADR links. Open issues OI-01…OI-03 resolved. |
+| 0.3 | 2026-09-24 | Golam Mahadi Ahmed | Added the same-gender ride option: FR-AUTH-01 (optional gender), FR-PAX-11, FR-POOL-11/12, FR-DRV-06, BR-02 (f), BR-18, scenario E5, data model, UI, assumptions A-19…A-21, decision D-24. |
 
 ---
 
@@ -130,9 +131,9 @@ The personas below come from the PRD's scenario (PRD §1) and are used consisten
 
 | Person | Role | Detail |
 |---|---|---|
-| **Nusrat** | Passenger | Banani → Mohakhali, 1 seat, opts in to pool, TeslaPay |
-| **Rafiq** | Passenger | Banani → Gulshan 1, 1 seat, opts in to pool, Cash |
-| **Shirin** | Passenger | Banani → Tejgaon, 1 seat, opts in to pool (the "last seat" contender) |
+| **Nusrat** | Passenger (female) | Banani → Mohakhali, 1 seat, opts in to pool, TeslaPay |
+| **Rafiq** | Passenger (male) | Banani → Gulshan 1, 1 seat, opts in to pool, Cash |
+| **Shirin** | Passenger (female) | Banani → Tejgaon, 1 seat, opts in to pool (the "last seat" contender); uses the same-gender option in scenario E5 |
 | **Jashim** | Driver | Owns **Bullet** |
 | **Bullet** | Tesla | 3 seats, plate `DHAKA-TESLA-11` (fictional) |
 | **Kamal** | Driver (additional persona, A-15) | Owns **Toofan** (3 seats); used only to exercise two drivers accepting the same request (TC-06) |
@@ -159,6 +160,7 @@ The personas below come from the PRD's scenario (PRD §1) and are used consisten
 | **Active request** | A ride request in REQUESTED, MATCHED, DRIVER_ARRIVED or STARTED status. |
 | **Active pool** | A pool in OPEN, DRIVER_ARRIVED or STARTED status. |
 | **Audit trail** | Append-only log of status changes (`status_history`). |
+| **Same-gender ride** | A pool restricted to co-riders of one declared gender (`FEMALE_ONLY` or `MALE_ONLY`) because at least one member requested it (BR-18). The driver is not part of the restriction. |
 | MVP | Minimum Viable Product |
 | RTM | Requirements Traceability Matrix |
 | MoSCoW | Must / Should / Could / Won't prioritisation |
@@ -210,7 +212,7 @@ The full register is in §13.1. The ones with the most impact:
 
 | ID | Requirement | Pri | PRD § | Acceptance criteria |
 |---|---|---|---|---|
-| FR-AUTH-01 | The system shall let a new passenger sign up with full name, phone number, e-mail and password. | M | 3 | Valid input creates a PASSENGER account and a TeslaPay wallet with ৳0 balance. A duplicate e-mail or phone returns 409 and no account is created. A password shorter than 8 characters returns 400. |
+| FR-AUTH-01 | The system shall let a new passenger sign up with full name, phone number, e-mail, password and an optional self-declared gender (FEMALE, MALE or PREFER_NOT_TO_SAY; default PREFER_NOT_TO_SAY). | M | 3 | Valid input creates a PASSENGER account and a TeslaPay wallet with ৳0 balance. A duplicate e-mail or phone returns 409 and no account is created. A password shorter than 8 characters returns 400. |
 | FR-AUTH-02 | The system shall let passengers and drivers sign in with e-mail (or phone) and password. | M | 3 | Correct credentials give an authenticated session that identifies the user and role. Wrong credentials return 401 with a generic message that does not reveal whether the account exists. |
 | FR-AUTH-03 | The system shall let a signed-in user sign out, which invalidates the client session. | M | 3 | After sign-out, protected endpoints return 401 for that session. |
 | FR-AUTH-04 | The system shall expose the current user's profile and role to the frontend. | M | 3 | `GET /me` returns id, name and role (plus the vehicle, for drivers). Without a session it returns 401. |
@@ -224,7 +226,7 @@ The full register is in §13.1. The ones with the most impact:
 |---|---|---|---|---|
 | FR-PAX-01 | The system shall provide the list of supported zones for pickup and destination selection. | M | 4 | `GET /zones` returns every seeded zone with code, name and coordinates. The UI offers only these zones. |
 | FR-PAX-02 | The system shall show a fare estimate for a pickup, destination and seat count before the passenger confirms. The estimate shall show both the solo fare and the "if pooled" fare. | M | 3, 5 | For Nusrat (Banani→Mohakhali, 1 seat), the estimate shows ৳75.00 solo and ৳66.00 if pooled, with the breakdown shown (BR-10). |
-| FR-PAX-03 | A passenger shall be able to create a ride request with pickup zone, destination zone, seats (1 to the maximum vehicle capacity), pool opt-in (default: yes) and payment method (CASH or TESLAPAY). | M | 3 | Valid input creates a request in REQUESTED status and records an audit entry. Pickup equal to destination returns 400. Seats outside the valid range return 400. An unknown zone returns 400. |
+| FR-PAX-03 | A passenger shall be able to create a ride request with pickup zone, destination zone, seats (1 to the maximum vehicle capacity), pool opt-in (default: yes), same-gender co-riders only (default: no) and payment method (CASH or TESLAPAY). | M | 3 | Valid input creates a request in REQUESTED status and records an audit entry. Pickup equal to destination returns 400. Seats outside the valid range return 400. An unknown zone returns 400. |
 | FR-PAX-04 | The system shall reject a new request while the passenger already has an active request. | M | 3, 12 | A second request returns 409 `ACTIVE_REQUEST_EXISTS`. This is enforced at database level as well (NFR-CON-04). |
 | FR-PAX-05 | When TeslaPay is selected, the system shall reject the request if the wallet balance is lower than the estimated solo fare. | S | 5 | With a balance of ৳50 and a solo fare of ৳75, the request is rejected with 422 `INSUFFICIENT_BALANCE`. |
 | FR-PAX-06 | The passenger shall be able to view their current ride: status, status timeline, pickup and destination, seats, fare (estimate or locked), payment method, driver name, Tesla name and plate once matched, whether the ride is shared, and the number of co-riders. | M | 2, 3 | Nusrat sees "Shared ride · 1 co-rider" and only her own fare. No other passenger's name, fare or destination appears anywhere in her API responses (A-09). |
@@ -232,6 +234,7 @@ The full register is in §13.1. The ones with the most impact:
 | FR-PAX-08 | A passenger shall be able to cancel their own request when the cancellation rules allow it (BR-07). If a fee applies, the fee shall be shown and confirmed before cancelling. | M | 3, 12 | Cancelling in REQUESTED or MATCHED is free. Cancelling in DRIVER_ARRIVED shows "৳20.00 cancellation fee" and requires confirmation. Cancelling in STARTED, COMPLETED, CANCELLED or EXPIRED returns 409 `INVALID_STATE_TRANSITION`. |
 | FR-PAX-09 | The passenger shall be able to view their ride history (newest first, paginated), showing date, route, seats, final status, final fare, payment method and whether the ride was shared. | M | 3 | The history contains only the passenger's own requests. An empty history shows an empty state. |
 | FR-PAX-10 | The passenger shall be able to open a past ride and see its full status timeline and fare breakdown. | S | 2, 3 | The timeline lists every transition with its timestamp, taken from the audit trail. |
+| FR-PAX-11 | A passenger whose declared gender is FEMALE or MALE may request a same-gender ride (co-riders of their gender only). The option shall be unavailable to passengers who declared PREFER_NOT_TO_SAY, and it requires pool opt-in. The ride view shall show a "Women-only ride" / "Men-only ride" badge. | S | 2, 3 | Shirin (FEMALE) can set the option. A PREFER_NOT_TO_SAY passenger setting it gets 400 `VALIDATION_ERROR`, as does setting it with pool opt-in = false. No co-rider gender is ever returned by passenger APIs. |
 
 ### 4.3 Driver & Tesla operations (DRV)
 
@@ -242,7 +245,7 @@ The full register is in §13.1. The ones with the most impact:
 | FR-DRV-03 | The system shall prevent a driver from going offline while they have an active pool. | M | 3 | Returns 409 `ACTIVE_POOL_EXISTS`. The UI disables the toggle and explains why. |
 | FR-DRV-04 | An online driver shall see relevant requests. With no active pool, these are REQUESTED, non-expired requests whose pickup zone is the driver's current zone and whose seats are at most the vehicle capacity. With an OPEN pool, these are only requests compatible with that pool (BR-02). Each shows pickup, destination, seats, pool opt-in, estimated fare and age. | M | 3, 4 | With Jashim online in Banani and Nusrat's request pending, the list contains Nusrat. After accepting Nusrat, it contains Rafiq (compatible) and does not contain a Banani→Uttara request. An offline driver gets 409 `DRIVER_OFFLINE`. |
 | FR-DRV-05 | A driver shall be able to accept a relevant request. If the driver has no active pool, a new pool is created. If the driver has an OPEN pool, the request is added to it. | M | 3 | The request moves to MATCHED and becomes a pool member, and occupied seats go up by its seat count, all in one transaction. The server re-checks every rule (BR-01…BR-05) at accept time. A rule violation returns 409 or 422 with a specific code. |
-| FR-DRV-06 | The driver shall see the active pool: status, occupied and free seats, and for each member the passenger's name, pickup, destination, seats, status, payment method and fare. | M | 2, 3 | With Nusrat and Rafiq matched, Jashim sees "2 / 3 seats occupied" and both members with their fares. |
+| FR-DRV-06 | The driver shall see the active pool: status, occupied and free seats, and for each member the passenger's name, pickup, destination, seats, status, payment method and fare, plus a badge when the pool is gender-restricted. | M | 2, 3 | With Nusrat and Rafiq matched, Jashim sees "2 / 3 seats occupied" and both members with their fares. |
 | FR-DRV-07 | The driver shall be able to mark the pool as arrived at the pickup zone. | M | 3 | The pool moves OPEN→DRIVER_ARRIVED, and every MATCHED member moves to DRIVER_ARRIVED. |
 | FR-DRV-08 | The driver shall be able to start the trip. | M | 3 | The pool moves DRIVER_ARRIVED→STARTED, and every DRIVER_ARRIVED member moves to STARTED. Fares are locked (BR-12). Starting is rejected if the pool has no member in DRIVER_ARRIVED. |
 | FR-DRV-09 | The driver shall be able to drop off (complete) each passenger individually, in any order. | M | 3 | The member moves STARTED→COMPLETED and payment is settled (BR-15/BR-16). When the last member is completed, the pool automatically becomes COMPLETED and the driver's current zone is set to the last drop-off zone. |
@@ -265,6 +268,8 @@ The full register is in §13.1. The ones with the most impact:
 | FR-POOL-08 | A pool shall be completed automatically when its last on-board member is completed. | M | 3 | The pool status is COMPLETED and `completed_at` is set. |
 | FR-POOL-09 | A ride request shall belong to at most one active pool at a time. | M | 3 | Enforced by a unique constraint. Two drivers accepting the same request concurrently gives exactly one success; the other gets 409 `INVALID_STATE_TRANSITION`. |
 | FR-POOL-10 | Pool membership shall be explicit and queryable. For any pool it shall be possible to list its members and each member's seats and status. | M | 3 | The driver's pool view and the database both show the membership. |
+| FR-POOL-11 | Gender restrictions (BR-18) shall be enforced on the server at accept time, under the same pool lock as capacity. | S | 2, 4 | With Shirin (same-gender option) in Bullet's pool, accepting Rafiq returns 422 `NOT_COMPATIBLE` with reason `GENDER_RESTRICTED`, and accepting Nusrat succeeds. Accepting a same-gender request from Shirin into a pool containing Rafiq returns the same 422. |
+| FR-POOL-12 | A pool's gender restriction shall be recalculated whenever a member leaves before the trip starts. | S | 3 | If Shirin was the only member requesting it and she cancels, the restriction returns to NONE and Rafiq becomes acceptable. |
 
 ### 4.5 Fares (FARE)
 
@@ -378,12 +383,13 @@ stateDiagram-v2
 | ID | Rule | PRD § |
 |---|---|---|
 | BR-01 | **Capacity.** A request may be accepted into a pool only if `occupied_seats + request.seats ≤ vehicle.capacity`. The database enforces this as well (NFR-CON-01). | 3, 12 |
-| BR-02 | **Compatibility (matching rule).** A REQUESTED request *R* may join an OPEN pool *P* only if **all** of the following hold: (a) `R.pickup_zone = P.pickup_zone`; (b) R and every active member of P opted in to pooling; (c) for every active member *M* of P, `R.destination = M.destination` **or** the two destinations are adjacent zones (BR-08); (d) R was created no more than **10 minutes** after P was created; (e) BR-01 holds. | 4 |
+| BR-02 | **Compatibility (matching rule).** A REQUESTED request *R* may join an OPEN pool *P* only if **all** of the following hold: (a) `R.pickup_zone = P.pickup_zone`; (b) R and every active member of P opted in to pooling; (c) for every active member *M* of P, `R.destination = M.destination` **or** the two destinations are adjacent zones (BR-08); (d) R was created no more than **10 minutes** after P was created; (e) BR-01 holds; (f) the gender rule BR-18 holds. | 4 |
 | BR-03 | **Solo pools.** The first request accepted by a driver always creates a new pool, provided its seats ≤ capacity. If that request did not opt in to pooling, the pool is private (FR-POOL-04). | 3 |
 | BR-04 | **One active pool per driver.** A driver may have at most one active pool. | 3 |
 | BR-05 | **One active request per passenger.** A passenger may have at most one active request. | 3 |
 | BR-06 | **Closed state machines.** Only the transitions in §5 are allowed, and only by the listed actor. All others are rejected without side effects. | 3, 12 |
 | BR-08 | **Zones.** The zone list, the distance table and the adjacency list are fixed reference data (seeded, §13.3). Distances are symmetric road-approximation values in kilometres, stored as integer metres. Adjacency is symmetric and declared explicitly; it is not derived from distance. | 4 |
+| BR-18 | **Same-gender rides.** Let *G(x)* be a passenger's declared gender. A pool's restriction is `FEMALE_ONLY` or `MALE_ONLY` if any active member requested a same-gender ride, and `NONE` otherwise. Request *R* may join pool *P* only if: (a) when P is restricted, G(R) matches the restriction; and (b) when R requests a same-gender ride, every active member of P has gender G(R). Passengers with PREFER_NOT_TO_SAY can join only unrestricted pools. The driver's gender is not considered. The fare rules are unchanged (BR-10…12). | 2, 4 |
 
 **Why this rule (D-03).** The PRD asks for a rule that handles Nusrat's and Rafiq's trips, which overlap but are not identical, and applies consistently. Requiring the same pickup zone keeps pickup to a single stop, so no pickup routing is needed. Requiring destinations to be the same or adjacent keeps the detour to one short hop between neighbouring zones. The 10-minute window stops a new rider joining a pool whose first passenger has already waited a long time. The rule is simple enough to verify by reading the adjacency table.
 
@@ -392,6 +398,14 @@ stateDiagram-v2
 - **Rafiq** (Banani→Gulshan 1) joins P, because Mohakhali and Gulshan 1 are adjacent.
 - **Shirin** (Banani→Tejgaon) is compatible with both, because Tejgaon is adjacent to Mohakhali and to Gulshan 1. She can take Bullet's third seat.
 - A **Banani→Uttara** request is not compatible with P: Uttara is adjacent to neither destination.
+
+**BR-18 applied (scenario E5):**
+- **Shirin** (female, same-gender option) is accepted first. Bullet's pool becomes `FEMALE_ONLY`.
+- **Nusrat** (female, no option) can join, because her destination is compatible and she is female.
+- **Rafiq** (male) cannot join (`GENDER_RESTRICTED`), even though his route is compatible.
+- If Rafiq had been accepted first, the pool would stay `NONE` (mixed). Nusrat could still join without the option, but a same-gender request from Shirin would be rejected.
+
+**Why (D-24).** Some passengers, particularly women, are more willing to share a small vehicle with strangers of the same gender. Because the restriction is a pool property checked under the pool lock, it is race-free in the same way capacity is. Only co-riders are restricted: both MVP driver personas are male, and a driver rule would make restricted rides unmatchable.
 
 ### 6.2 Cancellation
 
@@ -449,15 +463,15 @@ This section is the conceptual data model. The physical model, with column types
 
 | Entity | Key attributes | Integrity constraints |
 |---|---|---|
-| **users** | id, full_name, email, phone, password_hash, role (PASSENGER / DRIVER), created_at | email and phone unique; role enum; password stored only as a hash |
+| **users** | id, full_name, email, phone, password_hash, role (PASSENGER / DRIVER), gender (FEMALE / MALE / PREFER_NOT_TO_SAY), created_at | email and phone unique; role and gender enums; password stored only as a hash; gender used only for matching |
 | **sessions** | id, user_id, token_hash, expires_at, last_seen_at, revoked_at | token_hash unique; only the SHA-256 of the cookie token is stored (ADR-0005) |
 | **driver_profiles** | user_id, availability (ONLINE / OFFLINE), current_zone_code, updated_at | exists only for drivers; ONLINE ⇒ current zone set (CHECK); the row locked first by driver commands |
 | **vehicles** (Teslas) | id, driver_id → driver_profiles, name, plate, capacity | exactly one vehicle per driver (unique driver_id); capacity 1–6 (CHECK); plate unique |
 | **zones** | code (PK, e.g. BAN), name, lat, lng | natural key |
 | **zone_distances** | from_zone_code, to_zone_code, distance_m | PK (from, to); from ≠ to; distance_m > 0; both directions stored |
 | **zone_adjacency** | zone_code, adjacent_zone_code | PK pair; symmetric; no self-pairs |
-| **ride_requests** | id, passenger_id, pickup_zone_code, destination_zone_code, seats, pool_opt_in, payment_method, status, estimated_fare_paisa, requested_at, expires_at, cancel_reason, timestamps | pickup ≠ destination; seats 1–6; status enum; **at most one active request per passenger** (partial unique index) |
-| **pools** | id, driver_id → driver_profiles, vehicle_id, pickup_zone_code, status, capacity (snapshot of the vehicle's), occupied_seats, is_private, lifecycle timestamps | **0 ≤ occupied_seats ≤ capacity** (CHECK on the same row); **at most one active pool per driver** (partial unique index); status enum |
+| **ride_requests** | id, passenger_id, pickup_zone_code, destination_zone_code, seats, pool_opt_in, same_gender_only, payment_method, status, estimated_fare_paisa, requested_at, expires_at, cancel_reason, timestamps | pickup ≠ destination; seats 1–6; same_gender_only ⇒ pool_opt_in (CHECK); status enum; **at most one active request per passenger** (partial unique index) |
+| **pools** | id, driver_id → driver_profiles, vehicle_id, pickup_zone_code, status, capacity (snapshot of the vehicle's), occupied_seats, is_private, gender_restriction (NONE / FEMALE_ONLY / MALE_ONLY), lifecycle timestamps | **0 ≤ occupied_seats ≤ capacity** (CHECK on the same row); **at most one active pool per driver** (partial unique index); status enum |
 | **pool_members** | pool_id, ride_request_id, seats, joined_at, left_at, dropoff_order, dropped_off_at | FK both; unique (pool, ride); **a request is in at most one active pool** (partial unique index on left_at IS NULL) |
 | **fares** | ride_request_id, type (RIDE / CANCELLATION_FEE), base_paisa, distance_m, per_km_paisa, distance_charge_paisa, discount_bps, discount_paisa, seats, pooled, total_paisa, locked_at | all amounts ≥ 0; discount ≤ distance charge; unique (ride, type); immutable after lock |
 | **payments** | id, fare_id, ride_request_id, method (CASH / TESLAPAY), status (PENDING_CASH / PAID / UNPAID), amount_paisa, wallet_transaction_id, collected_by_id, paid_at | amount > 0; one payment per fare |
@@ -482,9 +496,9 @@ This section is the conceptual data model. The physical model, with column types
 
 | Screen | Role | Must show / allow | States |
 |---|---|---|---|
-| Sign up | Passenger | Name, phone, e-mail, password; field errors | submitting, error |
+| Sign up | Passenger | Name, phone, e-mail, password, optional gender (noting it is used only for matching); field errors | submitting, error |
 | Sign in | Both | E-mail/phone, password; demo credentials hint in non-production | submitting, error |
-| Request a ride | Passenger | Pickup and destination zone selectors, seats, "Share my ride" toggle, payment method, live estimate (solo and pooled) | loading zones, estimating, error, disabled while an active ride exists |
+| Request a ride | Passenger | Pickup and destination zone selectors, seats, "Share my ride" toggle, "Same-gender co-riders only" toggle (shown only when a gender is declared), payment method, live estimate (solo and pooled) | loading zones, estimating, error, disabled while an active ride exists |
 | Current ride | Passenger | Status stepper or timeline, driver and Tesla, shared indicator and co-rider count, fare (estimate or locked, with breakdown), cancel button with fee warning | loading, no active ride (empty), error, polling |
 | Ride history & detail | Passenger | List plus a detail page with timeline and breakdown | loading, empty, error |
 | Wallet | Passenger | Balance, transactions, simulated top-up | loading, empty, error |
@@ -712,6 +726,9 @@ The workbook maps each requirement to its method and test case IDs.
 | A-16 | Times are stored in UTC and displayed in Asia/Dhaka (UTC+6). | Standard practice. |
 | A-17 | Only BDT is used, with a single rate card for all zones and times. | PRD asks for an understandable model. |
 | A-18 | Ratings, the admin console, notifications and surge pricing are out of scope. | PRD lists them as optional. MVP focus. |
+| A-19 | Gender is self-declared and optional, with no verification. Misdeclaration is a known limitation. | Identity verification (KYC) is out of scope (A-05, A-18). |
+| A-20 | Gender is personal data. It is never shown to co-riders or included in their API responses. Drivers see only the pool's restriction badge. | Data minimisation (A-09, NFR-SEC-03). |
+| A-21 | The same-gender option restricts co-riders only, not the driver. | Both driver personas are male; a driver rule would make restricted rides unmatchable in the MVP. |
 
 ### 13.2 Decisions log
 
@@ -740,6 +757,7 @@ The workbook maps each requirement to its method and test case IDs.
 | D-21 | Tests use Vitest + Supertest against a real PostgreSQL test DB ([ADR-0011](adr/0011-testing-vitest-supertest-real-postgres.md)). | Jest; mocks/SQLite; Testcontainers | Locks and constraints can only be proven against the real engine. |
 | D-22 | The frontend uses the Next.js App Router, TanStack Query (polling) and Tailwind CSS ([ADR-0012](adr/0012-frontend-nextjs-tanstack-query-tailwind.md)). | Vite + React Router; SWR; component libraries | Built-in loading/error states and polling; a small, maintainable UI stack. |
 | D-23 | Schema choices: a `pool_members` link table, `pools.capacity` snapshot, a `driver_profiles` table, zone code as natural key, UUID ids, and a polymorphic append-only `status_history` ([ERD §8](ERD.md#8-design-rationale)). | `ride_requests.pool_id`; CHECK via trigger; driver columns on users | Row-local CHECK for capacity, re-matching history, driver-only ownership that is structural. |
+| D-24 | Add an optional same-gender ride option, enforced as a pool-level restriction under the pool lock (BR-18). | Driver-gender matching; mandatory gender; separate fare for restricted rides | Improves rider comfort and safety with a minimal model change, reusing the existing lock and matching path. Fare rules are unchanged. |
 
 ### 13.3 Reference data — zones, distances, adjacency
 
