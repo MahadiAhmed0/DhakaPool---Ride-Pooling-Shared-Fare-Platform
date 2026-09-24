@@ -10,6 +10,7 @@ import {
   type RideStatus,
 } from './enums.ts';
 import type { FareBreakdown } from './fares.ts';
+import { pageFields } from './paging.ts';
 import { hasDifferentZones, SAME_ZONE_PROBLEM, tripFields } from './trips.ts';
 
 export const rideRequestSchema = z
@@ -27,15 +28,12 @@ export const rideRequestSchema = z
   });
 export type RideRequestInput = z.infer<typeof rideRequestSchema>;
 
-// FR-PAX-09: history is shown a page at a time, newest first.
-export const RIDE_PAGE_SIZE = 10;
-export const MAX_RIDE_PAGE_SIZE = 50;
+// FR-PAX-09: the current ride, or the history a page at a time, newest first.
 export const RIDE_LIST_SCOPES = ['active', 'history'] as const;
 
 export const rideListQuerySchema = z.object({
   scope: z.enum(RIDE_LIST_SCOPES).default('active'),
-  cursor: z.uuid('The cursor is not valid.').optional(), // the last ride id of the previous page
-  limit: z.coerce.number().int().min(1).max(MAX_RIDE_PAGE_SIZE).default(RIDE_PAGE_SIZE),
+  ...pageFields,
 });
 export type RideListQuery = z.infer<typeof rideListQuerySchema>;
 

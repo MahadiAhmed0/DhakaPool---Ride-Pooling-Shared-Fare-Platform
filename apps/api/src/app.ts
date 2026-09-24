@@ -18,6 +18,7 @@ import { faresRouter } from './modules/fares/fares.routes.ts';
 import { healthRouter } from './modules/health/health.routes.ts';
 import { poolsRouter } from './modules/pools/pools.routes.ts';
 import { ridesRouter } from './modules/rides/rides.routes.ts';
+import { walletRouter } from './modules/wallet/wallet.routes.ts';
 import { zonesRouter } from './modules/zones/zones.routes.ts';
 
 // Largest JSON body the API accepts (ARCHITECTURE §8). Every request body is small.
@@ -52,6 +53,7 @@ export function createApp(options: AppOptions = {}): Express {
   app.use('/api/rides', ridesRouter);
   app.use('/api/driver', driversRouter);
   app.use('/api/pools', poolsRouter);
+  app.use('/api/wallet', walletRouter);
 
   app.use(notFound);
   app.use(errorHandler);
