@@ -5,7 +5,10 @@ import type { ReactNode } from 'react';
 import { AppShell } from '@/components/app-shell';
 import { getSignedInUser, homeFor } from '@/lib/server-session';
 
-const DRIVER_LINKS = [{ href: '/driver', label: 'Dashboard' }];
+const DRIVER_LINKS = [
+  { href: '/driver', label: 'Dashboard' },
+  { href: '/driver/requests', label: 'Requests' },
+];
 
 export default async function DriverLayout({ children }: { children: ReactNode }) {
   const user = await getSignedInUser();

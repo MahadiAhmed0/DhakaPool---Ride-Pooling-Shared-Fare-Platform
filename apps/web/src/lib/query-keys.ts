@@ -13,4 +13,5 @@ export const queryKeys = {
   // Everything a driver sees starts with 'driver', so one driver action can refresh it all.
   driver: ['driver'] as const,
   driverStatus: ['driver', 'status'] as const,
+  driverRequests: ['driver', 'requests'] as const,
 };
