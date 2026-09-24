@@ -7,6 +7,9 @@ import { AppError, InternalError, ValidationError } from '../domain/errors.ts';
 
 type BodyParserError = { type?: string };
 
+// 409: not allowed in the current state. 422: not allowed by a business rule (SRS §8.2).
+const REJECTED_COMMAND_STATUSES = new Set([409, 422]);
+
 function isBodyParserError(error: unknown, type: string): boolean {
   return typeof error === 'object' && error !== null && (error as BodyParserError).type === type;
 }
@@ -54,6 +57,14 @@ export function errorHandler(
   const appError = toAppError(error);
   if (appError instanceof InternalError) {
     req.log.error({ err: error }, 'Unexpected error');
+  }
+  // FR-HIST-03, NFR-OBS-02: a refused command (409 or 422) is logged at WARN with its code.
+  // The request log line already carries the request id and the user id.
+  if (REJECTED_COMMAND_STATUSES.has(appError.httpStatus)) {
+    req.log.warn(
+      { event: 'command.rejected', code: appError.code, actorRole: req.user?.role },
+      appError.message,
+    );
   }
   res.status(appError.httpStatus).json({
     error: { code: appError.code, message: appError.message, details: appError.details },
