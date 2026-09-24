@@ -9,6 +9,7 @@ import { errorHandler } from './middleware/error-handler.ts';
 import { httpLogger } from './middleware/http-logger.ts';
 import { notFound } from './middleware/not-found.ts';
 import { requestId } from './middleware/request-id.ts';
+import { authRouter } from './modules/auth/auth.routes.ts';
 import { healthRouter } from './modules/health/health.routes.ts';
 
 // Largest JSON body the API accepts (ARCHITECTURE §8). Every request body is small.
@@ -27,6 +28,7 @@ export function createApp(): Express {
 
   app.use('/health', healthRouter);
   app.use('/api/health', healthRouter);
+  app.use('/api/auth', authRouter);
 
   app.use(notFound);
   app.use(errorHandler);
