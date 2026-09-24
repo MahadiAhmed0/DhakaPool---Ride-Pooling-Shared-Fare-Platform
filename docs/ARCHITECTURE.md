@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.7 (Draft for review) |
+| Version | 0.8 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.3](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -17,6 +17,7 @@
 | 0.5 | 2026-09-24 | Synced with the zones and fares modules: the domain layer may use `@dhakapool/shared` types; zone reference data cached in memory; fare breakdown shape and `CURRENT_FARE_RATES`; test folder layout as built |
 | 0.6 | 2026-09-24 | Synced with the rides and audit modules: transition tables in the shared package, service function names, passenger expiry in its own transaction before each command, `command.rejected` WARN log |
 | 0.7 | 2026-09-24 | Synced with the drivers and pools modules: `GET /api/driver/availability`, matching signature and reasons as built, file-level service names, passenger cancel in MATCHED (pool lock, one re-read) |
+| 0.8 | 2026-09-24 | Synced with the trip lifecycle: driver commands lock driver → pool after an ownership check, §6.4 and §6.5 as built, new §6.6 (driver cancels the trip, no-show), pool service names |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -133,7 +134,7 @@ flowchart LR
 | `fares` | `POST /api/fares/estimate` | `estimateFare({ pickupZoneCode, destinationZoneCode, seats })` → distance, rates, and the solo and pooled breakdowns |
 | `rides` | `POST /api/rides`, `GET /api/rides`, `GET /api/rides/:id`, `POST /api/rides/:id/cancel` | `createRide`, `listRidesForPassenger`, `getRideForPassenger` (`rides.service.ts`); `cancelRideByPassenger` (`ride-cancellation.service.ts`); `expireOverdueRides(tx, passengerId?)` (`ride-expiry.service.ts`); `toRideView` (`ride-view.ts`) |
 | `drivers` | `GET` · `PUT /api/driver/availability`, `GET /api/driver/requests`, `POST /api/driver/requests/:id/accept`, `GET /api/driver/pools` | `getDriverStatus`, `setAvailability`, `loadDriver`, `assertOnline` (`drivers.service.ts`); `listRelevantRequests` (`request-feed.service.ts`); accept delegates to `pools` |
-| `pools` | `POST /api/pools/:id/arrive`, `/start`, `/cancel`, `POST /api/pools/:id/members/:rideId/complete`, `/no-show`, `/cash-collected` | `acceptRequest` (`accept-request.service.ts`); `lockActivePool`, `getPoolView`, `toMatchPool` (`pools.service.ts`); `lockPoolOfRide`, `leavePoolBeforeStart` (`leave-pool.service.ts`); later `markArrived`, `startTrip` (locks fares), `dropOff`, `cancelPool`, `markNoShow`, `markCashCollected` |
+| `pools` | `POST /api/pools/:id/arrive`, `/start`, `/cancel`, `POST /api/pools/:id/members/:rideId/complete`, `/no-show`, `/cash-collected` | `acceptRequest` (`accept-request.service.ts`); `markArrived`, `startTrip` (locks fares) (`trip.service.ts`); `dropOff` (`drop-off.service.ts`); `cancelTrip`, `markNoShow` (`cancel-trip.service.ts`); `lockPoolOfRide`, `leavePoolBeforeStart` (`leave-pool.service.ts`); `lockOwnPool` (`own-pool.ts`), `movePool` (`pool-moves.ts`); `lockActivePool`, `getPoolView`, `listDriverPools` (`pools.service.ts`); later `markCashCollected` |
 | `wallet` | `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/topup` | `getBalancePaisa(tx, …)`, `getWallet`, `topUp`, `debitForRide(tx, …)`, `chargeCancellationFee(tx, …)` |
 | `audit` | *(internal)* | `recordTransition(tx, { entityType, entityId, fromStatus, toStatus, actor, reason })`, `recordTransitions(tx, [...])`, `listTimeline(entityType, entityId)` |
 | `health` | `GET /health` | DB `SELECT 1` → `{ status, db }` |
@@ -254,20 +255,21 @@ If the two contenders are **different drivers racing for the same request**, the
 sequenceDiagram
     autonumber
     actor J as Jashim
-    participant A as api · pools.service
+    participant A as api · pools services
     participant DB as PostgreSQL
+    note over A,DB: every command: check Jashim owns P (else 404), then lock driver → pool
     J->>A: POST /pools/{P}/arrive
-    A->>DB: lock pool · CAS pool OPEN → DRIVER_ARRIVED · members MATCHED → DRIVER_ARRIVED · audit
+    A->>DB: CAS pool OPEN → DRIVER_ARRIVED (arrived_at) · members MATCHED → DRIVER_ARRIVED · audit
     J->>A: POST /pools/{P}/start
     rect rgb(235, 245, 255)
-    A->>DB: lock pool · CAS DRIVER_ARRIVED → STARTED
+    A->>DB: CAS pool DRIVER_ARRIVED → STARTED (audit metadata: pooled)
     A->>A: pooled = count(distinct passengers on board) ≥ 2 (BR-12)
     A->>DB: INSERT fares (RIDE) per member with rate snapshot — Nusrat 6600, Rafiq 6000
     A->>DB: members DRIVER_ARRIVED → STARTED · audit
     end
     J->>A: POST /pools/{P}/members/{nusratRide}/complete
     rect rgb(235, 245, 255)
-    A->>DB: lock pool → ride → Nusrat's wallet
+    A->>DB: lock driver → pool → ride → Nusrat's wallet · free her seat, record drop-off order
     A->>DB: UPDATE wallets SET balance = balance − 6600 WHERE id = W AND balance ≥ 6600
     A->>DB: INSERT wallet_transactions (RIDE_PAYMENT −6600) · INSERT payments (PAID)
     A->>DB: ride STARTED → COMPLETED · audit
@@ -280,14 +282,19 @@ sequenceDiagram
 
 ### 6.5 Passenger cancels while matched (lock order preserved)
 
-1. Read the ride without a lock to find its active pool.
-2. Lock the pool (`FOR UPDATE`).
-3. CAS the ride `MATCHED → CANCELLED`. If 0 rows, re-read and return 409.
-4. Mark the membership `left_at = now()` and decrement `occupied_seats`.
-5. If no active members remain, the pool moves to `CANCELLED` (FR-POOL-07).
+1. Find the ride's active membership without a lock, then lock its pool (`FOR UPDATE`) and read the membership again.
+2. CAS the ride `MATCHED → CANCELLED` (or `DRIVER_ARRIVED → CANCELLED`). If 0 rows, the status changed meanwhile (for example a driver accepted): read it once more and cancel from the new status. Only a second change gives 409.
+3. Mark the membership `left_at = now()` and decrement `occupied_seats`.
+4. Recalculate the pool's gender restriction from the remaining members (FR-POOL-12).
+5. If no active members remain, the system moves the pool to `CANCELLED` with reason `ALL_MEMBERS_CANCELLED` (FR-POOL-07).
 6. Write audit rows, then COMMIT.
 
-In `DRIVER_ARRIVED`, the same transaction also inserts the ৳20 `CANCELLATION_FEE` fare and debits the wallet, or marks the fee `UNPAID` for cash (BR-07, FR-PAY-05).
+In `DRIVER_ARRIVED`, the same transaction also inserts the ৳20 `CANCELLATION_FEE` fare (FR-FARE-05). The wallet module then debits it, or marks the fee `UNPAID` for cash (BR-07, FR-PAY-05).
+
+### 6.6 Driver ends things before the start
+
+- **Cancel the trip** (`POST /pools/{P}/cancel`, PT-04): allowed in OPEN or DRIVER_ARRIVED. Every active member goes back to `REQUESTED` with `requested_at` and `expires_at` restarted, so the join window and the 15-minute expiry start again and another driver can accept them. All memberships get `left_at`, seats go to 0, the pool is `CANCELLED` with reason `DRIVER_CANCELLED_POOL`, and nobody is charged.
+- **No-show** (`POST /pools/{P}/members/{ride}/no-show`, RT-09): allowed only for a DRIVER_ARRIVED member and only `NO_SHOW_WAIT_MINUTES` after `arrived_at`; before that, a 409 says how many minutes are left. The member is cancelled with reason `NO_SHOW`, the fee is recorded, and the member leaves the pool exactly as in §6.5.
 
 ## 7. Consistency & concurrency strategy (NFR-CON-01…06, ADR-0006)
 

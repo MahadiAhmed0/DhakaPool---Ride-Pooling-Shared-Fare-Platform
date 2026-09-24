@@ -104,6 +104,7 @@ Do not abbreviate: write `ride`, not `rr`, and `passenger`, not `pax`. The one e
 | Add a new error | Add the code to `ErrorCode` in `domain/errors.ts` and to SRS §8.2. |
 | Change which zones count as neighbours for pooling | Edit `ADJACENT_PAIRS` in `apps/api/prisma/seed-data/zones.ts` (each pair once), run `npm run db:seed`, restart the API (zones are cached in memory), and update SRS §13.3. |
 | Change how late a request may still join a pool | Set `POOL_JOIN_WINDOW_MINUTES` in `.env`. |
+| Change the cancellation fee or the no-show wait | Set `CANCELLATION_FEE_PAISA` (for example `3000` = ৳30) or `NO_SHOW_WAIT_MINUTES` in `.env`, restart the API, and update BR-07 in the SRS. Fees already charged keep their amount. |
 | Allow a new status change | Add it to `RIDE_TRANSITIONS` or `POOL_TRANSITIONS` in `packages/shared/src/transitions.ts`, add it to SRS §5 and to the expected list in `apps/api/test/domain/state-machine.test.ts`, then write the service command that makes the change (compare-and-set plus `recordTransition`). |
 | Change how long a request waits before expiring, or how often expiry runs | `REQUEST_EXPIRY_MINUTES` in `.env`; `EXPIRY_SWEEP_INTERVAL_SECONDS` in `apps/api/src/config/rules.ts`. |
 
