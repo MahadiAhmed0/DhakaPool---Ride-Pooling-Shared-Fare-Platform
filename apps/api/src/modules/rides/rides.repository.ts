@@ -112,3 +112,35 @@ export async function markRideCancelled(
   });
   return count === 1;
 }
+
+// The passenger's gender is loaded for the matching rule only; it is never shown to the driver.
+const WAITING_RIDE_INCLUDE = {
+  passenger: { select: { fullName: true, gender: true } },
+} satisfies Prisma.RideRequestInclude;
+
+export type WaitingRide = Prisma.RideRequestGetPayload<{ include: typeof WAITING_RIDE_INCLUDE }>;
+export type WaitingRideFilter = {
+  pickupZoneCode: string;
+  maxSeats: number;
+  now: Date;
+  limit: number;
+};
+
+// REQUESTED and not yet expired, oldest first, so the longest-waiting passenger is seen first.
+export async function findWaitingRides(filter: WaitingRideFilter): Promise<WaitingRide[]> {
+  return prisma.rideRequest.findMany({
+    where: {
+      status: 'REQUESTED',
+      pickupZoneCode: filter.pickupZoneCode,
+      expiresAt: { gt: filter.now },
+      seats: { lte: filter.maxSeats },
+    },
+    orderBy: { requestedAt: 'asc' },
+    take: filter.limit,
+    include: WAITING_RIDE_INCLUDE,
+  });
+}
+
+export async function findWaitingRide(tx: Tx, rideId: string): Promise<WaitingRide | null> {
+  return tx.rideRequest.findUnique({ where: { id: rideId }, include: WAITING_RIDE_INCLUDE });
+}

@@ -13,6 +13,7 @@ import { createAuthRateLimiter } from './middleware/rate-limit.ts';
 import { requestId } from './middleware/request-id.ts';
 import { loadSession } from './middleware/session.ts';
 import { createAuthRouter } from './modules/auth/auth.routes.ts';
+import { driversRouter } from './modules/drivers/drivers.routes.ts';
 import { faresRouter } from './modules/fares/fares.routes.ts';
 import { healthRouter } from './modules/health/health.routes.ts';
 import { ridesRouter } from './modules/rides/rides.routes.ts';
@@ -48,6 +49,7 @@ export function createApp(options: AppOptions = {}): Express {
   app.use('/api/zones', zonesRouter);
   app.use('/api/fares', faresRouter);
   app.use('/api/rides', ridesRouter);
+  app.use('/api/driver', driversRouter);
 
   app.use(notFound);
   app.use(errorHandler);
