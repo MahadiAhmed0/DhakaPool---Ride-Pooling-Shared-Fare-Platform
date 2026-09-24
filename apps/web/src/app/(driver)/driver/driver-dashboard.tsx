@@ -3,6 +3,7 @@
 // and whether a trip is under way.
 import type { DriverStatus } from '@dhakapool/shared';
 import { Badge } from '@/components/ui/badge';
+import { ButtonLink } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SeatMeter } from '@/components/ui/seat-meter';
 import { ErrorState, LoadingState } from '@/components/ui/states';
@@ -33,6 +34,9 @@ function ActiveTripNote({ trip }: { trip: NonNullable<DriverStatus['activePool']
     <Card title="Trip under way" tone="info">
       <p className="mb-3 font-bold">{POOL_STATUS_LABELS[trip.status]}</p>
       <SeatMeter occupied={trip.occupiedSeats} capacity={trip.capacity} />
+      <div className="mt-4">
+        <ButtonLink href="/driver/pool">Manage the trip</ButtonLink>
+      </div>
     </Card>
   );
 }

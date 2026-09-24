@@ -8,6 +8,7 @@ import { getSignedInUser, homeFor } from '@/lib/server-session';
 const DRIVER_LINKS = [
   { href: '/driver', label: 'Dashboard' },
   { href: '/driver/requests', label: 'Requests' },
+  { href: '/driver/pool', label: 'Trip' },
 ];
 
 export default async function DriverLayout({ children }: { children: ReactNode }) {

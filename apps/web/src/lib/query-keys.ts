@@ -14,4 +14,5 @@ export const queryKeys = {
   driver: ['driver'] as const,
   driverStatus: ['driver', 'status'] as const,
   driverRequests: ['driver', 'requests'] as const,
+  activePool: ['driver', 'pools', 'active'] as const,
 };

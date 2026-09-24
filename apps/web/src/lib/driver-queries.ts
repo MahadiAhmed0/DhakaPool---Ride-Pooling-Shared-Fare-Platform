@@ -1,7 +1,12 @@
 'use client';
 // The server data the driver screens read, one small hook each (TanStack Query, ADR-0012).
 // Keys come from query-keys.ts, so a driver action can refresh exactly what it affects.
-import type { DriverStatus, WaitingRequest } from '@dhakapool/shared';
+import type {
+  DriverPoolList,
+  DriverPoolView,
+  DriverStatus,
+  WaitingRequest,
+} from '@dhakapool/shared';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { api } from './api-client';
 import { queryKeys } from './query-keys';
@@ -27,5 +32,16 @@ export function useDriverRequests(isOnline: boolean): UseQueryResult<WaitingRequ
       (await api.get<{ requests: WaitingRequest[] }>('/driver/requests')).requests,
     enabled: isOnline,
     refetchInterval: LIVE_DRIVER_REFRESH_MS,
+  });
+}
+
+// The driver's one trip under way, or null (BR-04). It refreshes while there is one, so a
+// passenger who cancels disappears from the list by themselves.
+export function useActivePool(): UseQueryResult<DriverPoolView | null> {
+  return useQuery({
+    queryKey: queryKeys.activePool,
+    queryFn: async () =>
+      (await api.get<DriverPoolList>('/driver/pools?scope=active')).pools[0] ?? null,
+    refetchInterval: (query) => (query.state.data ? LIVE_DRIVER_REFRESH_MS : false),
   });
 }
