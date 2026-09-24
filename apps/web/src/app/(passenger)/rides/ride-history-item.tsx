@@ -6,8 +6,7 @@ import { Badge, RideStatusBadge } from '@/components/ui/badge';
 import { MoneyText } from '@/components/ui/money-text';
 import { formatDateTime } from '@/lib/format';
 import { useZoneName } from '@/lib/hooks/use-zone-name';
-
-const PAYMENT_METHOD_LABELS = { TESLAPAY: 'TeslaPay', CASH: 'Cash' } as const;
+import { PAYMENT_METHOD_LABELS } from '@/lib/labels';
 
 // What the ride finally cost: the fixed fare, or a cancellation fee, or nothing.
 function finalCost(ride: RideView): number | null {

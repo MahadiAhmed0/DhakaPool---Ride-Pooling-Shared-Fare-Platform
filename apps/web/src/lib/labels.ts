@@ -1,6 +1,12 @@
 // Human-readable words for statuses and payments (NFR-USA-02). The API sends codes such as STARTED;
 // the screens always show these words instead.
-import type { PaymentStatus, PoolStatus, RideStatus } from '@dhakapool/shared';
+import type {
+  GenderRestriction,
+  PaymentMethod,
+  PaymentStatus,
+  PoolStatus,
+  RideStatus,
+} from '@dhakapool/shared';
 
 export const RIDE_STATUS_LABELS: Record<RideStatus, string> = {
   REQUESTED: 'Finding a Tesla',
@@ -24,4 +30,15 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   PENDING_CASH: 'Cash due',
   PAID: 'Paid',
   UNPAID: 'Not paid',
+};
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  TESLAPAY: 'TeslaPay',
+  CASH: 'Cash',
+};
+
+// BR-18: the badge of a same-gender trip. A trip with no restriction has no badge.
+export const RESTRICTION_LABELS: Record<Exclude<GenderRestriction, 'NONE'>, string> = {
+  FEMALE_ONLY: 'Women-only ride',
+  MALE_ONLY: 'Men-only ride',
 };

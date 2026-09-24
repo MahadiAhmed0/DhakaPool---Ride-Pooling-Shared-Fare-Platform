@@ -6,11 +6,10 @@ import { Card } from '@/components/ui/card';
 import { StatusStepper } from '@/components/ui/status-stepper';
 import { formatTime } from '@/lib/format';
 import { useZoneName } from '@/lib/hooks/use-zone-name';
+import { PAYMENT_METHOD_LABELS } from '@/lib/labels';
 import { CancelRideButton } from './cancel-ride-button';
 import { RideFare } from './ride-fare';
 import { TripSummary } from './trip-summary';
-
-const PAYMENT_METHOD_LABELS = { TESLAPAY: 'TeslaPay', CASH: 'Cash' } as const;
 
 export function RideTracker({ ride }: { ride: RideView }) {
   const zoneName = useZoneName();

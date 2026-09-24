@@ -1,13 +1,9 @@
 'use client';
 // Who is driving and whether the Tesla is shared (FR-PAX-06). Co-riders appear only as a number,
 // never by name (A-09), and a same-gender trip shows its badge (FR-PAX-11).
-import type { GenderRestriction, RideTrip } from '@dhakapool/shared';
+import type { RideTrip } from '@dhakapool/shared';
 import { Badge } from '@/components/ui/badge';
-
-const RESTRICTION_LABELS: Record<Exclude<GenderRestriction, 'NONE'>, string> = {
-  FEMALE_ONLY: 'Women-only ride',
-  MALE_ONLY: 'Men-only ride',
-};
+import { RESTRICTION_LABELS } from '@/lib/labels';
 
 function sharingText(trip: RideTrip): string {
   if (!trip.isShared) {
