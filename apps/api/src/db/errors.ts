@@ -27,6 +27,10 @@ const CONSTRAINT_ERRORS: Record<string, () => AppError> = {
     new ConflictError('ACTIVE_POOL_EXISTS', 'This driver already has an active trip.'),
   pool_members_one_active_membership: () =>
     new ConflictError('INVALID_STATE_TRANSITION', 'This ride is already in a pool.'),
+  users_email_key: () =>
+    new ConflictError('CONFLICT', 'An account with this e-mail address already exists.'),
+  users_phone_key: () =>
+    new ConflictError('CONFLICT', 'An account with this phone number already exists.'),
   wallets_balance_check: () =>
     new UnprocessableError('INSUFFICIENT_BALANCE', 'Your TeslaPay balance is too low.'),
 };

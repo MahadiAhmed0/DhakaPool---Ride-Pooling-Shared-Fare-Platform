@@ -30,3 +30,4 @@ export const TOP_UP_MAX_PAISA = 500_000; // BR-17: ৳5,000 maximum top-up
 export const MAX_SEATS_PER_REQUEST = 6; // FR-PAX-03 / ERD: seats 1–6, never above vehicle capacity
 export const BASIS_POINTS_PER_WHOLE = 10_000; // 10,000 bps = 100 %
 export const METRES_PER_KM = 1_000;
+export const AUTH_ATTEMPTS_PER_MINUTE = 10; // NFR-SEC-07: sign-up and sign-in attempts per IP

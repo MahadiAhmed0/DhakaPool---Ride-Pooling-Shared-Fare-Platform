@@ -8,6 +8,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   WEB_ORIGIN: z.url().default('http://localhost:3000'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  // Sessions and passwords (ADR-0005, NFR-SEC-01, NFR-SEC-06).
+  SESSION_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7 days
+  COOKIE_SECURE: z.stringbool().default(false), // true in production (HTTPS only)
+  BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
 });
 
 export type Env = z.infer<typeof envSchema>;
