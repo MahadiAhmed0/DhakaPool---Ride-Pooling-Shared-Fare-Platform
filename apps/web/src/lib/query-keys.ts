@@ -1,6 +1,7 @@
 // Every cached piece of server data has its key here, so a change can refresh exactly what it
 // affects (ARCHITECTURE §10).
 export const queryKeys = {
+  me: ['me'] as const,
   zones: ['zones'] as const,
   activeRide: ['rides', 'active'] as const,
   rideHistory: ['rides', 'history'] as const,
