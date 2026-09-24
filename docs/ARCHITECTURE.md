@@ -352,7 +352,7 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 | Data minimisation | Passenger ride DTOs include `shared`, `coRiderCount` and the pool's `genderRestriction` badge only (A-09). No user's gender is returned to anyone except that user (A-20). The driver pool DTO includes member names, fares, payment methods and the restriction badge, but not members' genders (A-10). |
 | Input validation | Zod schemas from `packages/shared`, `.strict()` (unknown keys rejected). UUID path params are validated. Enums are validated against the shared definitions. |
 | Transport & headers | `helmet()` defaults; JSON body limit 100 kB; `cors({ origin: WEB_ORIGIN, credentials: true })` only matters for direct API access, since the browser uses the proxy. |
-| Rate limiting | `express-rate-limit` on `/api/auth/login` and `/signup`: 10 per minute per IP. Memory store, which is acceptable for one instance and noted in §12. Express trusts exactly one proxy hop (`trust proxy = 1`, the web app's `/api` proxy), so the limit applies per client IP rather than to every user behind Next.js. |
+| Rate limiting | `express-rate-limit` on `/api/auth/login` and `/signup`: 10 per minute per IP. Memory store, which is acceptable for one instance and noted in §12. Express trusts exactly `TRUST_PROXY_HOPS` proxy hops (default 1, the web app's `/api` proxy; 2 when hosted behind the Vercel rewrite and Render's load balancer), so the limit applies per client IP rather than to every user behind the proxies. |
 | SQL injection | Prisma query API. The few raw queries use tagged templates (`$queryRaw` with parameters), never `$queryRawUnsafe`. |
 | Secrets | Only from environment variables, validated at boot by a Zod `env.ts`. `.env` is git-ignored; `.env.example` holds placeholders only. |
 | Errors | Production responses never include stacks. Every error carries `requestId`, which matches the log line. |
@@ -507,6 +507,7 @@ flowchart LR
 | `DB_PORT` | `5432` (host port; change if already in use) | db |
 | `NODE_ENV` · `LOG_LEVEL` | `production` · `info` | api, web |
 | `SESSION_TTL_HOURS` · `COOKIE_SECURE` · `BCRYPT_COST` | `168` · `false` · `12` | api |
+| `TRUST_PROXY_HOPS` | `1` (Docker); `2` behind Vercel and Render | api (rate-limit client IP) |
 | `FARE_BASE_PAISA` · `FARE_PER_KM_PAISA` · `FARE_POOL_DISCOUNT_BPS` · `CANCELLATION_FEE_PAISA` | `3000` · `1500` · `2000` · `2000` | api (BR-11) |
 | `REQUEST_EXPIRY_MINUTES` · `POOL_JOIN_WINDOW_MINUTES` · `NO_SHOW_WAIT_MINUTES` | `15` · `10` · `5` | api (A-13, BR-02, FR-DRV-12) |
 | `SEED_DEMO_PASSWORD` | `TeslaPool#2026` (demo only, documented in README) | seed |
