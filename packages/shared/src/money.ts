@@ -1,7 +1,7 @@
 // Formats money for display. Amounts are always whole paisa (1 Taka = 100 paisa, FR-FARE-06);
 // only this function turns them into "৳66.00", using integer arithmetic so no rounding can creep in.
 
-const PAISA_PER_TAKA = 100;
+export const PAISA_PER_TAKA = 100;
 
 export function formatPaisa(paisa: number): string {
   const sign = paisa < 0 ? '−' : '';

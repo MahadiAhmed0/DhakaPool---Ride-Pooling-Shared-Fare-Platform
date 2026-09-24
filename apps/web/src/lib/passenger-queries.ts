@@ -12,7 +12,13 @@ import type {
   Zone,
 } from '@dhakapool/shared';
 import { isActiveRide } from '@dhakapool/shared';
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  type UseInfiniteQueryResult,
+  useQuery,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import { api } from './api-client';
 import { queryKeys } from './query-keys';
 
@@ -64,10 +70,28 @@ export function useWallet(): UseQueryResult<WalletView> {
   });
 }
 
-export function useWalletStatement(): UseQueryResult<WalletStatement> {
-  return useQuery({
+// Lists come a page at a time; "Show more" asks for the page after the last one (FR-PAX-09).
+function pagePath(path: string, cursor: string | undefined): string {
+  const separator = path.includes('?') ? '&' : '?';
+  return cursor ? `${path}${separator}cursor=${cursor}` : path;
+}
+
+export function useRideHistory(): UseInfiniteQueryResult<InfiniteData<RideList>> {
+  return useInfiniteQuery({
+    queryKey: queryKeys.rideHistory,
+    queryFn: ({ pageParam }) => api.get<RideList>(pagePath('/rides?scope=history', pageParam)),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  });
+}
+
+export function useWalletStatement(): UseInfiniteQueryResult<InfiniteData<WalletStatement>> {
+  return useInfiniteQuery({
     queryKey: queryKeys.walletTransactions,
-    queryFn: () => api.get<WalletStatement>('/wallet/transactions?limit=50'),
+    queryFn: ({ pageParam }) =>
+      api.get<WalletStatement>(pagePath('/wallet/transactions', pageParam)),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
 }
 

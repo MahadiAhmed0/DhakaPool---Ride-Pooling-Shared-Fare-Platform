@@ -4,16 +4,13 @@
 import type { RideView } from '@dhakapool/shared';
 import { Card } from '@/components/ui/card';
 import { StatusStepper } from '@/components/ui/status-stepper';
+import { formatTime } from '@/lib/format';
 import { useZoneName } from '@/lib/hooks/use-zone-name';
 import { CancelRideButton } from './cancel-ride-button';
 import { RideFare } from './ride-fare';
 import { TripSummary } from './trip-summary';
 
 const PAYMENT_METHOD_LABELS = { TESLAPAY: 'TeslaPay', CASH: 'Cash' } as const;
-
-function timeOf(isoTime: string): string {
-  return new Date(isoTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-}
 
 export function RideTracker({ ride }: { ride: RideView }) {
   const zoneName = useZoneName();
@@ -28,7 +25,7 @@ export function RideTracker({ ride }: { ride: RideView }) {
           {ride.seats} {ride.seats === 1 ? 'seat' : 'seats'} ·{' '}
           {PAYMENT_METHOD_LABELS[ride.paymentMethod]}
           {ride.status === 'REQUESTED'
-            ? ` · waiting for a driver until ${timeOf(ride.expiresAt)}`
+            ? ` · waiting for a driver until ${formatTime(ride.expiresAt)}`
             : ''}
         </p>
         <TripSummary trip={ride.trip} />
