@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.11 (Draft for review) |
+| Version | 0.12 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.4](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -21,6 +21,7 @@
 | 0.9 | 2026-09-24 | Synced with the wallet module: settlement service, cash collection on the pools routes, PAYMENT audit entity, cash fall-back and unpaid fees, unreachable-database codes mapped to 503 |
 | 0.10 | 2026-09-24 | Neo-brutalist visual style (ADR-0013) in §10; implements SRS v0.4 |
 | 0.11 | 2026-09-25 | Synced with the passenger UI: session guard in `lib/server-session.ts`, per-screen query hooks, cursor-paged lists, polling as built, taka-to-paisa top-up input, web layout in §11 |
+| 0.12 | 2026-09-25 | Synced with the driver UI: driver query hooks and 4 s refresh of the feed and the active pool, buttons from the shared transition tables via `lib/driver-moves.ts`, one command hook per trip button, Cash collected also in the trip history |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -394,13 +395,13 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 | Route groups | `(auth)` login and signup · `(passenger)` `/ride`, `/rides`, `/rides/[id]`, `/wallet` · `(driver)` `/driver`, `/driver/requests`, `/driver/pool`, `/driver/history` |
 | Guarding | Each group's server `layout.tsx` calls `GET {API_INTERNAL_URL}/api/auth/me` through `lib/server-session.ts`, forwarding the cookie, and redirects by role (FR-AUTH-05). The API still enforces the same rules. |
 | Data fetching | TanStack Query in client components through `lib/api-client.ts`, which turns the standard error shape into an `ApiError`. Each screen reads its data through one small hook (`lib/passenger-queries.ts`); query keys live in `lib/query-keys.ts`, and mutations invalidate the related keys. Lists (ride history, wallet statement) are cursor-paged with `useInfiniteQuery` and a "Show more" button (FR-PAX-09, FR-PAY-01). |
-| Polling | `useActiveRide()` and `useRide(id)` refresh every 4 s (`LIVE_RIDE_REFRESH_MS`) while the ride is active, and stop once it is terminal; TanStack Query pauses them while the tab is hidden (NFR-PERF-03). The driver screens follow the same rule for the active pool. |
+| Polling | `useActiveRide()` and `useRide(id)` refresh every 4 s (`LIVE_RIDE_REFRESH_MS`) while the ride is active, and stop once it is terminal; TanStack Query pauses them while the tab is hidden (NFR-PERF-03). The driver screens use `LIVE_DRIVER_REFRESH_MS` (4 s) the same way: the request feed refreshes while the driver is online, and the active pool while there is one (`lib/driver-queries.ts`). |
 | UI states | Shared `<LoadingState/>`, `<EmptyState/>` and `<ErrorState onRetry/>`. Every query-driven view uses all three (NFR-USA-01). |
 | Domain widgets | `StatusStepper`, `FareBreakdown`, `SeatMeter` (2/3), `ConfirmDialog` (states any fee), `MoneyText` (paisa → "৳66.00") |
 | Validation | The same Zod schemas as the API, from `packages/shared`, via `react-hook-form` + `zodResolver`. The top-up form asks for taka and sends paisa (`PAISA_PER_TAKA`), within the shared BR-17 limits. |
 | Styling | Tailwind CSS, mobile-first, down to 360 px (NFR-USA-05). No component library, to keep the bundle and the explanation small. |
 | Visual style | Neo-brutalism ([ADR-0013](adr/0013-neo-brutalist-ui-style.md)): 3 px black borders, hard `4px 4px 0 #000` shadows, flat accents (yellow actions, pink fees, cyan info, lime success, red errors) with black text, Archivo Black headings and Space Grotesk body text. Tokens live in `app/globals.css`; pages use only the `components/ui` kit, so the look changes in one place. |
-| Action visibility | Buttons are derived from the status with the same transition table exported by `packages/shared` (NFR-USA-03). The server stays authoritative. |
+| Action visibility | Buttons are derived from the status with the same transition tables exported by `packages/shared` (NFR-USA-03): `lib/driver-moves.ts` asks whether the DRIVER may make a move, and the passenger's Cancel follows the `cancellation` the API reports. Each driver button sends its own command (`components/pools/use-trip-command.ts`) and refreshes every driver query afterwards. The server stays authoritative. |
 
 ## 11. Repository layout (npm workspaces monorepo, ADR-0008)
 
@@ -411,8 +412,8 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 │   │   ├── src/app/(auth)/…         # login, signup
 │   │   ├── src/app/(passenger)/…    # ride, rides, rides/[id], wallet
 │   │   ├── src/app/(driver)/…       # driver, driver/requests, driver/pool, driver/history
-│   │   ├── src/components/          # ui/ (neo-brutalist kit), rides/ (tracker, fare, cancel)
-│   │   ├── src/lib/                 # api-client.ts, query-keys.ts, passenger-queries.ts, labels.ts, format.ts, hooks/
+│   │   ├── src/components/          # ui/ (neo-brutalist kit), rides/ (tracker, fare, cancel), pools/ (badges, trip commands, cash)
+│   │   ├── src/lib/                 # api-client.ts, query-keys.ts, passenger- and driver-queries.ts, driver-moves.ts, labels.ts, format.ts, page-path.ts, hooks/
 │   │   ├── next.config.ts           # rewrites /api/* → API_INTERNAL_URL
 │   │   └── Dockerfile
 │   └── api/                         # Express + TypeScript
