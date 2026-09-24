@@ -3,6 +3,7 @@ import { rideListQuerySchema, type RideRequestInput } from '@dhakapool/shared';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { NotFoundError } from '../../domain/errors.ts';
+import { cancelRideByPassenger } from './ride-cancellation.service.ts';
 import { createRide, getRideForPassenger, listRidesForPassenger } from './rides.service.ts';
 
 // A ride id that is not even a valid id cannot belong to anyone, so it is simply "not found".
@@ -29,4 +30,9 @@ export async function getRides(req: Request, res: Response): Promise<void> {
 // GET /api/rides/:id — one ride with its timeline (FR-PAX-10).
 export async function getRide(req: Request, res: Response): Promise<void> {
   res.status(200).json({ ride: await getRideForPassenger(req.user!.id, rideIdFrom(req)) });
+}
+
+// POST /api/rides/:id/cancel — cancel the passenger's own ride (FR-PAX-08).
+export async function postCancelRide(req: Request, res: Response): Promise<void> {
+  res.status(200).json({ ride: await cancelRideByPassenger(req.user!.id, rideIdFrom(req)) });
 }

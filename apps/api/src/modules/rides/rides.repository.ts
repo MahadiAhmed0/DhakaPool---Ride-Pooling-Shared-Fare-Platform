@@ -85,3 +85,30 @@ export async function findLargestVehicleCapacity(): Promise<number | null> {
   const largest = await prisma.vehicle.aggregate({ _max: { capacity: true } });
   return largest._max.capacity;
 }
+
+export async function findPassengerRideStatus(
+  tx: Tx,
+  passengerId: string,
+  rideId: string,
+): Promise<RideStatus | null> {
+  const ride = await tx.rideRequest.findFirst({
+    where: { id: rideId, passengerId },
+    select: { status: true },
+  });
+  return ride?.status ?? null;
+}
+
+// Compare-and-set (NFR-CON-02): only cancels when the ride is still in the status the caller saw.
+// Returns false when something else changed it first, for example a driver accepting it.
+export async function markRideCancelled(
+  tx: Tx,
+  rideId: string,
+  expectedStatus: RideStatus,
+  reason: string,
+): Promise<boolean> {
+  const { count } = await tx.rideRequest.updateMany({
+    where: { id: rideId, status: expectedStatus },
+    data: { status: 'CANCELLED', cancelReason: reason, cancelledAt: new Date() },
+  });
+  return count === 1;
+}
