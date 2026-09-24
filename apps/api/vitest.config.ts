@@ -9,6 +9,8 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
+      // Hashing at the lowest bcrypt cost keeps sign-in tests fast; production uses 12.
+      BCRYPT_COST: '4',
       DATABASE_URL: TEST_DATABASE_URL,
     },
     // Test files share one database, so they run one after another.
