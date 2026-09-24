@@ -2,6 +2,7 @@
 import type { Metadata } from 'next';
 import { Archivo_Black, Noto_Sans_Bengali, Space_Grotesk } from 'next/font/google';
 import type { ReactNode } from 'react';
+import { QueryProvider } from '@/lib/query-provider';
 import './globals.css';
 
 // Headings: a heavy display font. Body text: a clean grotesk.
@@ -30,7 +31,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       lang="en"
       className={`${archivoBlack.variable} ${spaceGrotesk.variable} ${notoBengali.variable}`}
     >
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <QueryProvider>{children}</QueryProvider>
+      </body>
     </html>
   );
 }
