@@ -85,6 +85,20 @@ describe('Jashim cancels the trip (TC-15, FR-DRV-11)', () => {
   });
 });
 
+describe('what cancelling would cost, shown before the passenger decides (FR-PAX-08)', () => {
+  it('tells Rafiq cancelling is free while matched, costs ৳20.00 after arrival, and is closed once started', async () => {
+    const whileMatched = await rafiq.get(`/api/rides/${rafiqsRide}`);
+    await jashim.post(`/api/pools/${poolId}/arrive`);
+    const afterArrival = await rafiq.get(`/api/rides/${rafiqsRide}`);
+    await jashim.post(`/api/pools/${poolId}/start`);
+    const afterStart = await rafiq.get(`/api/rides/${rafiqsRide}`);
+
+    expect(whileMatched.body.ride.cancellation).toEqual({ isAllowed: true, feePaisa: 0 });
+    expect(afterArrival.body.ride.cancellation).toEqual({ isAllowed: true, feePaisa: 2000 });
+    expect(afterStart.body.ride.cancellation).toEqual({ isAllowed: false, feePaisa: 0 });
+  });
+});
+
 describe('a passenger cancelling after Jashim arrived (TC-05, scenario E3)', () => {
   it('charges Rafiq the ৳20.00 fee, and Nusrat then rides alone at the solo fare', async () => {
     await jashim.post(`/api/pools/${poolId}/arrive`);

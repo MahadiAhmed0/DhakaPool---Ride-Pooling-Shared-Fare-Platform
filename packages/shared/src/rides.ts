@@ -54,6 +54,10 @@ export type RidePayment = {
   amountPaisa: number;
 };
 
+// Whether the passenger may cancel now, and what it would cost (BR-07, FR-PAX-08). The screen
+// states the fee before the passenger confirms (NFR-USA-06).
+export type RideCancellation = { isAllowed: boolean; feePaisa: number };
+
 // The Tesla trip the ride belongs to, once a driver has accepted it.
 export type RideTrip = {
   driverName: string;
@@ -79,6 +83,7 @@ export type RideView = {
   cancelReason: string | null;
   fare: RideFare;
   payments: RidePayment[];
+  cancellation: RideCancellation;
   trip: RideTrip | null;
 };
 
