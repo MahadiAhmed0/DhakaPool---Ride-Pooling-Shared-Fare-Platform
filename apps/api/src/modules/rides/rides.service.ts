@@ -22,7 +22,7 @@ import { type Actor, listTimeline, recordTransition } from '../audit/audit.servi
 import { getCurrentUser } from '../auth/auth.service.ts';
 import { estimateFare } from '../fares/fares.service.ts';
 import { getBalancePaisa } from '../wallet/wallet.service.ts';
-import { expireOverdueRides } from './ride-expiry.service.ts';
+import { expireOverdueRidesOf } from './ride-expiry.service.ts';
 import { toRideTimeline, toRideView } from './ride-view.ts';
 import {
   findActiveRideId,
@@ -95,8 +95,8 @@ export async function createRide(passengerId: string, ride: RideRequestInput): P
   const estimate = await estimateFare(ride);
   const passenger: Actor = { role: 'PASSENGER', userId: passengerId };
 
+  await expireOverdueRidesOf(passengerId); // NFR-REL-04: an overdue ride no longer counts as active
   const rideId = await withTransaction(async (tx) => {
-    await expireOverdueRides(tx, passengerId);
     await assertNoActiveRide(tx, passengerId);
     if (ride.paymentMethod === 'TESLAPAY') {
       await assertCanAfford(tx, passengerId, estimate.solo.totalPaisa);
@@ -125,7 +125,7 @@ export async function getRideForPassenger(
   passengerId: string,
   rideId: string,
 ): Promise<RideDetail> {
-  await withTransaction((tx) => expireOverdueRides(tx, passengerId)); // NFR-REL-04
+  await expireOverdueRidesOf(passengerId); // NFR-REL-04
   return loadRideDetail(passengerId, rideId);
 }
 
@@ -133,7 +133,7 @@ export async function listRidesForPassenger(
   passengerId: string,
   query: RideListQuery,
 ): Promise<RideList> {
-  await withTransaction((tx) => expireOverdueRides(tx, passengerId)); // NFR-REL-04
+  await expireOverdueRidesOf(passengerId); // NFR-REL-04
   const statuses = query.scope === 'active' ? ACTIVE_RIDE_STATUSES : TERMINAL_RIDE_STATUSES;
   const rows = await findPassengerRides(passengerId, {
     statuses,
