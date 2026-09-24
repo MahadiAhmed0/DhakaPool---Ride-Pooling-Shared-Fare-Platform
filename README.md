@@ -7,7 +7,7 @@ A full-stack MVP for sharing Dhaka's three-wheeled Teslas. Passengers request a 
 | **Demo video** | _Link added with the v1.0.0 release_ |
 | **Deployment** | _See [Deployment](#deployment)_ |
 | **Requirements** | [SRS](docs/SRS.md) · [traceability workbook](docs/DhakaPool_SRS_Tracker.xlsx) |
-| **Design** | [Architecture](docs/ARCHITECTURE.md) · [ERD](docs/ERD.md) · [ADRs](docs/adr/README.md) · [Coding conventions](docs/CODING_CONVENTIONS.md) |
+| **Design** | [Architecture](docs/ARCHITECTURE.md) · [ERD](docs/ERD.md) · [ADRs](docs/adr/README.md) · [Coding conventions](docs/CODING_CONVENTIONS.md) · [Scaling notes](docs/SCALING.md) |
 
 ---
 
@@ -177,7 +177,7 @@ Money is always integer **paisa** (1 taka = 100 paisa) in 64-bit columns; distan
 | Tests | Vitest + Supertest against a real PostgreSQL | Locks and constraints only behave truthfully on the real engine | [ADR-0011](docs/adr/0011-testing-vitest-supertest-real-postgres.md) |
 | Runtime | Docker Compose, Node 24 on Debian slim images | One command on any machine | [ADR-0009](docs/adr/0009-docker-first-deployment.md) |
 
-Deliberately **not** used: microservices, message queues, Redis, WebSockets, Kubernetes. None solves a problem the MVP has; [Concurrency at larger scale](#concurrency-the-last-seat-problem) says when some of them would become worth it.
+Deliberately **not** used: microservices, message queues, Redis, WebSockets, Kubernetes. None solves a problem the MVP has; the [scaling notes](docs/SCALING.md) say when each would become worth it.
 
 ## Project structure
 
@@ -344,6 +344,8 @@ Transactions are short (no network calls inside), `lock_timeout` is 3 s, and Pos
 - serve history from read replicas and cache reference data;
 - replace polling with push (WebSockets or SSE);
 - run the expiry sweep as one scheduled job instead of one per API instance.
+
+The full reasoning for 1M passengers and 100k drivers — load estimate, target architecture, and each topic from load balancing to deployment — is in [docs/SCALING.md](docs/SCALING.md).
 
 ## Key decisions and trade-offs
 
