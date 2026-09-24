@@ -99,10 +99,11 @@ Do not abbreviate: write `ride`, not `rr`, and `passenger`, not `pax`. The one e
 |---|---|
 | Change the pool discount | Set `FARE_POOL_DISCOUNT_BPS` in `.env` (for example `2500` = 25 %), restart the API, and run `npm test`. The tests keep using the SRS default rates, which are pinned in `apps/api/vitest.config.ts`. If the default itself changes, update `config/rules.ts`, the pinned values, and the worked examples in SRS §6.4 together. |
 | Change the base fare or the price per km | Same as the pool discount, with `FARE_BASE_PAISA` or `FARE_PER_KM_PAISA`. The formula itself is in `apps/api/src/domain/fare.ts`. |
-| Change how long a request waits before expiring | Set `REQUEST_EXPIRY_MINUTES` in `.env`. |
 | Add a new API endpoint | Copy an existing module's four files, rename them, register the router in `apps/api/src/app.ts`, and add a test in `apps/api/test/`. |
 | Add a new business rule | Add its SRS ID and text to `docs/SRS.md` and the tracker first. Put the logic in `domain/` or a service, cite the ID in a comment, and add a test named after the rule. |
 | Add a new error | Add the code to `ErrorCode` in `domain/errors.ts` and to SRS §8.2. |
+| Allow a new status change | Add it to `RIDE_TRANSITIONS` or `POOL_TRANSITIONS` in `packages/shared/src/transitions.ts`, add it to SRS §5 and to the expected list in `apps/api/test/domain/state-machine.test.ts`, then write the service command that makes the change (compare-and-set plus `recordTransition`). |
+| Change how long a request waits before expiring, or how often expiry runs | `REQUEST_EXPIRY_MINUTES` in `.env`; `EXPIRY_SWEEP_INTERVAL_SECONDS` in `apps/api/src/config/rules.ts`. |
 
 ## 11. Tooling notes
 

@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.5 (Draft for review) |
+| Version | 0.6 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.3](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -15,6 +15,7 @@
 | 0.3 | 2026-09-24 | Synced with the project setup: `config/rules.ts` and `logger.ts` in the layout, Node-based container health checks on `node:24-bookworm-slim` images, `DB_PORT` variable |
 | 0.4 | 2026-09-24 | Synced with the auth module: rate limiting keyed on the client IP behind one trusted proxy hop; sign-out returns 204 |
 | 0.5 | 2026-09-24 | Synced with the zones and fares modules: the domain layer may use `@dhakapool/shared` types; zone reference data cached in memory; fare breakdown shape and `CURRENT_FARE_RATES`; test folder layout as built |
+| 0.6 | 2026-09-24 | Synced with the rides and audit modules: transition tables in the shared package, service function names, passenger expiry in its own transaction before each command, `command.rejected` WARN log |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -118,7 +119,7 @@ flowchart LR
 | `controller` | service, shared schemas | Read the validated input, call the service, map to a response DTO (e.g. hide co-rider data, A-09) | Transactions, SQL, rules |
 | `service` | repositories, domain, other modules' services, audit | Use-case orchestration, **transaction boundaries**, ownership checks, locking, audit writes | HTTP objects (`req`/`res`) |
 | `repository` | Prisma `TransactionClient` | Queries. Every function takes the `tx` it runs in. | Rules, HTTP |
-| `domain` | nothing but `@dhakapool/shared` types (pure) | `fare.ts`, `matching.ts`, `state-machine.ts`, `money.ts`, `errors.ts` | I/O, Prisma, Date.now (time is passed in) |
+| `domain` | nothing but `@dhakapool/shared` types and tables (pure) | `fare.ts`, `matching.ts`, `state-machine.ts`, `money.ts`, `errors.ts` | I/O, Prisma, Date.now (time is passed in) |
 
 **Transactions are owned by services.** A service opens `withTransaction(async (tx) => { … })` and passes `tx` to every repository call and to `audit.record(tx, …)`. Either everything commits together or nothing does (NFR-CON-02, FR-HIST-01).
 
@@ -129,11 +130,11 @@ flowchart LR
 | `auth` | `POST /api/auth/signup`, `/login`, `/logout`, `GET /api/auth/me` | `signUp`, `logIn` (creates session), `logOut` (revokes), `getMe` |
 | `zones` | `GET /api/zones` | `listZones`, `distanceBetween` (BR-09), `areNeighbours` (BR-08). Reference data is read once and kept in memory; a failed read is not cached. |
 | `fares` | `POST /api/fares/estimate` | `estimateFare({ pickupZoneCode, destinationZoneCode, seats })` → distance, rates, and the solo and pooled breakdowns |
-| `rides` | `POST /api/rides`, `GET /api/rides`, `GET /api/rides/:id`, `POST /api/rides/:id/cancel` | `createRequest`, `listForPassenger`, `getForPassenger`, `cancelByPassenger` |
+| `rides` | `POST /api/rides`, `GET /api/rides`, `GET /api/rides/:id`, `POST /api/rides/:id/cancel` | `createRide`, `listRidesForPassenger`, `getRideForPassenger` (`rides.service.ts`); `cancelRideByPassenger` (`ride-cancellation.service.ts`); `expireOverdueRides(tx, passengerId?)` (`ride-expiry.service.ts`); `toRideView` (`ride-view.ts`) |
 | `drivers` | `PUT /api/driver/availability`, `GET /api/driver/requests`, `POST /api/driver/requests/:id/accept`, `GET /api/driver/pools` | `setAvailability`, `listRelevantRequests`, `acceptRequest` (delegates to pools) |
 | `pools` | `POST /api/pools/:id/arrive`, `/start`, `/cancel`, `POST /api/pools/:id/members/:rideId/complete`, `/no-show`, `/cash-collected` | `addMember`, `markArrived`, `startTrip` (locks fares), `dropOff`, `cancelPool`, `markNoShow`, `markCashCollected` |
-| `wallet` | `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/topup` | `getWallet`, `topUp`, `debitForRide(tx, …)`, `chargeCancellationFee(tx, …)` |
-| `audit` | *(internal)* | `record(tx, { entityType, entityId, from, to, actor, reason })` |
+| `wallet` | `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/topup` | `getBalancePaisa(tx, …)`, `getWallet`, `topUp`, `debitForRide(tx, …)`, `chargeCancellationFee(tx, …)` |
+| `audit` | *(internal)* | `recordTransition(tx, { entityType, entityId, fromStatus, toStatus, actor, reason })`, `recordTransitions(tx, [...])`, `listTimeline(entityType, entityId)` |
 | `health` | `GET /health` | DB `SELECT 1` → `{ status, db }` |
 
 ### 5.4 Pure domain layer
@@ -141,19 +142,20 @@ flowchart LR
 - **`fare.ts`** implements BR-10 exactly: `computeFare({ distanceM, seats, pooled, rates }) → { pooled, seats, basePaisa, distanceChargePaisa, discountPaisa, farePerSeatPaisa, totalPaisa }` (the shared `FareBreakdown` type). Integers in, integers out. The current rates are `CURRENT_FARE_RATES` in `config/rules.ts`; the caller passes them in, so the function never reads the environment.
 - **`money.ts`** holds `roundHalfUpDiv(numerator, denominator)`. It rounds with the integer remainder, so no floating-point division is involved (BR-13).
 - **`matching.ts`** implements BR-02: `isCompatible(request, pool, members, adjacency, now) → { ok: true } | { ok: false, reason }`. The reasons are `DIFFERENT_PICKUP`, `NOT_OPTED_IN`, `DESTINATION_NOT_ADJACENT`, `JOIN_WINDOW_PASSED`, `GENDER_RESTRICTED` (BR-18), `NO_SEATS` and `POOL_NOT_OPEN`.
+- **`cancellation.ts`** gives `cancellationPolicy(status) → FREE | FEE | FORBIDDEN` (BR-07). Whether cancelling is allowed at all comes from the state machine.
 - **`pool-restriction.ts`** computes `genderRestriction(members) → NONE | FEMALE_ONLY | MALE_ONLY` (BR-18). `pools.service` stores the result on the pool whenever a member joins or leaves, inside the same locked transaction.
-- **`state-machine.ts`** holds the transition tables from SRS §5 as data:
+- **`state-machine.ts`** checks moves against the SRS §5 transition tables. The tables are data in `packages/shared/src/transitions.ts` (`RIDE_TRANSITIONS`, `POOL_TRANSITIONS`), so the web app can derive its buttons from the same source:
 
 ```ts
-// shape only — actors allowed per (from → to)
-const RIDE: Record<RideStatus, Partial<Record<RideStatus, ActorRole[]>>> = {
+// actors allowed per (from → to)
+export const RIDE_TRANSITIONS: TransitionTable<RideStatus> = {
   REQUESTED:      { MATCHED: ['DRIVER'], CANCELLED: ['PASSENGER'], EXPIRED: ['SYSTEM'] },
   MATCHED:        { DRIVER_ARRIVED: ['DRIVER'], CANCELLED: ['PASSENGER'], REQUESTED: ['DRIVER'] },
   DRIVER_ARRIVED: { STARTED: ['DRIVER'], CANCELLED: ['PASSENGER', 'DRIVER'], REQUESTED: ['DRIVER'] },
   STARTED:        { COMPLETED: ['DRIVER'] },
   COMPLETED: {}, CANCELLED: {}, EXPIRED: {},
 };
-assertTransition('RIDE', from, to, actor); // throws InvalidTransitionError → 409
+assertRideMove(from, to, actor); // not in the table → 409 INVALID_STATE_TRANSITION (assertPoolMove for pools)
 ```
 
 The service uses the table to *decide* whether a transition is allowed, and the database compare-and-set (§7.2) to make sure the decision still holds at write time.
@@ -174,10 +176,11 @@ sequenceDiagram
     A-->>W: solo 7500 · pooled 6600
     N->>W: Confirm
     W->>A: POST /api/rides
-    A->>A: Zod validate, requireRole PASSENGER
+    A->>A: Zod validate, requireRole PASSENGER, zones, seats ≤ largest Tesla, same-gender rule
+    A->>DB: expire this passenger's overdue REQUESTED rides (own short transaction, §7.3)
     rect rgb(235, 245, 255)
     note over A,DB: one transaction
-    A->>DB: expire this passenger's stale REQUESTED rides (lazy expiry)
+    A->>DB: no active ride? (else 409 with the existing ride id)
     A->>DB: check TeslaPay balance ≥ solo estimate
     A->>DB: INSERT ride_requests (status REQUESTED, expires_at = now + 15 min)
     note right of DB: partial unique index rejects a second active ride
@@ -311,7 +314,7 @@ In `DRIVER_ARRIVED`, the same transaction also inserts the ৳20 `CANCELLATION_F
 
 - Every ride stores `expires_at`. The accept CAS includes `expires_at > now()`, so an expired ride can never be matched, even before the sweeper runs.
 - An in-process sweeper runs every 60 s: `UPDATE … SET status = 'EXPIRED' WHERE status = 'REQUESTED' AND expires_at <= now()`, plus audit rows with actor SYSTEM.
-- When a passenger creates a new ride, their own stale rides are expired first, in the same transaction, so a not-yet-swept ride never blocks them.
+- Before every passenger command (create, list, view, cancel), that passenger's own overdue rides are expired first, in a short transaction of their own. A not-yet-swept ride therefore never blocks a new request or shows a stale status, and the expiry is kept even when the command itself is refused and rolled back.
 - **Known limit:** with several API replicas, each would run a sweeper. The sweep is idempotent (CAS on status), so this stays correct, just redundant. At scale, move it to a scheduled job (§12).
 
 ### 7.4 What changes at scale
@@ -362,8 +365,8 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 - `pino` writes JSON to stdout, which Docker collects.
 - `pino-http` adds these fields per request: `requestId`, `userId`, `method`, `route`, `statusCode` and `responseTimeMs`.
 - The `redact` option covers `req.headers.cookie`, `req.headers.authorization`, `*.password` and `*.token`.
-- Domain events are logged at INFO: `ride.transition`, `pool.transition` and `wallet.debit`.
-- Rejections are logged at WARN: `transition.rejected` with the code and actor (NFR-OBS-02).
+- Domain events are logged at INFO: `ride.transition`, `pool.transition`, `driver.transition` (written by the audit module), `ride.expiry_sweep` and `wallet.debit`.
+- Refused commands (409 and 422) are logged at WARN by the error handler as `command.rejected`, with the error code and the actor's role. The request log fields add the request id and user id (FR-HIST-03, NFR-OBS-02).
 
 ### 9.3 Health
 
