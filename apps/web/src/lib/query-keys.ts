@@ -10,4 +10,7 @@ export const queryKeys = {
     ['fare-estimate', pickup, destination, seats] as const,
   wallet: ['wallet'] as const,
   walletTransactions: ['wallet', 'transactions'] as const,
+  // Everything a driver sees starts with 'driver', so one driver action can refresh it all.
+  driver: ['driver'] as const,
+  driverStatus: ['driver', 'status'] as const,
 };
