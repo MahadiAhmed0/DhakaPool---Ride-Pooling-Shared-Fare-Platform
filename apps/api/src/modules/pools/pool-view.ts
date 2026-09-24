@@ -2,9 +2,26 @@
 // for matching but never copied here (A-20).
 import type { DriverPoolView } from '@dhakapool/shared';
 import { paisaFromDb } from '../../db/money.ts';
+import type { Fare } from '../../generated/prisma/client.ts';
 import type { PoolRow } from './pools.repository.ts';
 
+function lockedFareOf(fares: Fare[]): number | null {
+  const rideFare = fares.find((fare) => fare.type === 'RIDE');
+  return rideFare ? paisaFromDb(rideFare.totalPaisa) : null;
+}
+
 export function toDriverPoolView(pool: PoolRow): DriverPoolView {
+  const members = pool.members.map(({ rideRequest: ride }) => ({
+    rideId: ride.id,
+    passengerName: ride.passenger.fullName,
+    pickupZoneCode: ride.pickupZoneCode,
+    destinationZoneCode: ride.destinationZoneCode,
+    seats: ride.seats,
+    status: ride.status,
+    paymentMethod: ride.paymentMethod,
+    estimatedFarePaisa: paisaFromDb(ride.estimatedFarePaisa),
+    lockedFarePaisa: lockedFareOf(ride.fares),
+  }));
   return {
     id: pool.id,
     status: pool.status,
@@ -15,15 +32,7 @@ export function toDriverPoolView(pool: PoolRow): DriverPoolView {
     isPrivate: pool.isPrivate,
     genderRestriction: pool.genderRestriction,
     createdAt: pool.createdAt.toISOString(),
-    members: pool.members.map(({ rideRequest: ride }) => ({
-      rideId: ride.id,
-      passengerName: ride.passenger.fullName,
-      pickupZoneCode: ride.pickupZoneCode,
-      destinationZoneCode: ride.destinationZoneCode,
-      seats: ride.seats,
-      status: ride.status,
-      paymentMethod: ride.paymentMethod,
-      estimatedFarePaisa: paisaFromDb(ride.estimatedFarePaisa),
-    })),
+    members,
+    totalFarePaisa: members.reduce((sum, member) => sum + (member.lockedFarePaisa ?? 0), 0),
   };
 }

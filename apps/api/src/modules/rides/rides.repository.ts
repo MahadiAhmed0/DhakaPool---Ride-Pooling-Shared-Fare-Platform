@@ -155,3 +155,19 @@ export async function markRideMatched(tx: Tx, rideId: string, now: Date): Promis
   });
   return count === 1;
 }
+
+// Moves several rides of one trip together, each only if it is still in `fromStatus`
+// (compare-and-set, NFR-CON-02). Returns the ids that actually moved.
+export async function markRidesMoved(
+  tx: Tx,
+  rideIds: string[],
+  fromStatus: RideStatus,
+  data: Prisma.RideRequestUpdateManyMutationInput,
+): Promise<string[]> {
+  const moved = await tx.rideRequest.updateManyAndReturn({
+    where: { id: { in: rideIds }, status: fromStatus },
+    data,
+    select: { id: true },
+  });
+  return moved.map((ride) => ride.id);
+}

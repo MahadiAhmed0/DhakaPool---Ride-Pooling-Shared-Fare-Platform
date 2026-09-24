@@ -11,7 +11,8 @@ export type DriverPoolMember = {
   seats: number;
   status: RideStatus;
   paymentMethod: PaymentMethod;
-  estimatedFarePaisa: number; // the solo estimate; the charged fare is fixed at trip start (BR-12)
+  estimatedFarePaisa: number; // the solo estimate, until the trip starts
+  lockedFarePaisa: number | null; // the fare fixed at trip start (BR-12)
 };
 
 export type DriverPoolView = {
@@ -25,4 +26,8 @@ export type DriverPoolView = {
   genderRestriction: GenderRestriction; // shown as a "Women-only ride" badge (BR-18)
   createdAt: string;
   members: DriverPoolMember[];
+  totalFarePaisa: number; // the fixed fares of this trip added up (FR-DRV-13); 0 before the start
 };
+
+// GET /api/driver/pools takes the same scope, cursor and limit as a passenger's ride list.
+export type DriverPoolList = { pools: DriverPoolView[]; nextCursor: string | null };

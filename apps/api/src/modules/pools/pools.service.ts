@@ -1,6 +1,11 @@
 // Pools shared by the driver and passenger commands: finding a driver's active pool, and turning
 // pools and rides into the input of the pure matching rule (domain/matching.ts).
-import { ACTIVE_POOL_STATUSES, type DriverPoolView } from '@dhakapool/shared';
+import {
+  ACTIVE_POOL_STATUSES,
+  type DriverPoolList,
+  type DriverPoolView,
+  type RideListQuery,
+} from '@dhakapool/shared';
 import { POOL_JOIN_WINDOW_MINUTES } from '../../config/rules.ts';
 import { prisma } from '../../db/client.ts';
 import { lockPool } from '../../db/lock.ts';
@@ -11,7 +16,7 @@ import type { RestrictionMember } from '../../domain/pool-restriction.ts';
 import type { WaitingRide } from '../rides/rides-for-drivers.service.ts';
 import { loadNeighbourCheck } from '../zones/zones.service.ts';
 import { toDriverPoolView } from './pool-view.ts';
-import { findActivePool, findPool, type PoolRow } from './pools.repository.ts';
+import { findActivePool, findDriverPools, findPool, type PoolRow } from './pools.repository.ts';
 
 export type { PoolRow } from './pools.repository.ts';
 
@@ -39,6 +44,32 @@ export async function getPoolView(poolId: string): Promise<DriverPoolView> {
     throw new NotFoundError('Trip not found.');
   }
   return toDriverPoolView(pool);
+}
+
+const FINISHED_POOL_STATUSES = ['COMPLETED', 'CANCELLED'] as const;
+
+// GET /api/driver/pools: the active trip, or past trips newest first (FR-DRV-06, FR-DRV-13).
+// Only this driver's own pools are ever read (NFR-SEC-03).
+export async function listDriverPools(
+  driverId: string,
+  query: RideListQuery,
+): Promise<DriverPoolList> {
+  if (query.scope === 'active') {
+    const pool = await findActivePool(prisma, driverId);
+    return { pools: pool ? [toDriverPoolView(pool)] : [], nextCursor: null };
+  }
+  const rows = await findDriverPools(prisma, {
+    driverId,
+    statuses: FINISHED_POOL_STATUSES,
+    cursor: query.cursor,
+    limit: query.limit,
+  });
+  const page = rows.slice(0, query.limit);
+  const hasMore = rows.length > query.limit;
+  return {
+    pools: page.map(toDriverPoolView),
+    nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
+  };
 }
 
 // The facts the same-gender rule needs about each active member (BR-18).

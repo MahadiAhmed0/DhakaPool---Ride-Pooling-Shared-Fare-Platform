@@ -11,7 +11,9 @@ const POOL_INCLUDE = {
     where: { leftAt: null },
     orderBy: { joinedAt: 'asc' },
     include: {
-      rideRequest: { include: { passenger: { select: { fullName: true, gender: true } } } },
+      rideRequest: {
+        include: { passenger: { select: { fullName: true, gender: true } }, fares: true },
+      },
     },
   },
 } satisfies Prisma.PoolInclude;
@@ -79,15 +81,56 @@ export async function markMemberLeft(tx: Tx, membership: Membership, now: Date):
 }
 
 // Compare-and-set on the pool's status (NFR-CON-02). Returns false if it changed meanwhile.
-export async function markPoolCancelled(
+export async function markPoolMoved(
   tx: Tx,
   poolId: string,
   expectedStatus: PoolRow['status'],
-  reason: string,
+  data: Prisma.PoolUpdateManyMutationInput,
 ): Promise<boolean> {
   const { count } = await tx.pool.updateMany({
     where: { id: poolId, status: expectedStatus },
-    data: { status: 'CANCELLED', cancelReason: reason, cancelledAt: new Date() },
+    data,
   });
   return count === 1;
+}
+
+// FR-DRV-09: the passenger is off, so their seats are free again. The order is kept for the record.
+export async function markMemberDroppedOff(
+  tx: Tx,
+  membership: Membership,
+  dropoffOrder: number,
+  now: Date,
+): Promise<void> {
+  await tx.poolMember.update({
+    where: { id: membership.id },
+    data: { droppedOffAt: now, dropoffOrder },
+  });
+  await tx.pool.update({
+    where: { id: membership.poolId },
+    data: { occupiedSeats: { decrement: membership.seats } },
+  });
+}
+
+export type PoolPage = {
+  driverId: string;
+  statuses: readonly PoolRow['status'][];
+  cursor?: string;
+  limit: number;
+};
+
+// Newest first. Asks for one extra pool to find out whether there is another page.
+export async function findDriverPools(tx: Tx, page: PoolPage): Promise<PoolRow[]> {
+  return tx.pool.findMany({
+    where: { driverId: page.driverId, status: { in: [...page.statuses] } },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: page.limit + 1,
+    ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
+    include: POOL_INCLUDE,
+  });
+}
+
+// PT-04: when the driver cancels, every active member leaves and all seats are free again.
+export async function markAllMembersLeft(tx: Tx, poolId: string, now: Date): Promise<void> {
+  await tx.poolMember.updateMany({ where: { poolId, leftAt: null }, data: { leftAt: now } });
+  await tx.pool.update({ where: { id: poolId }, data: { occupiedSeats: 0 } });
 }
