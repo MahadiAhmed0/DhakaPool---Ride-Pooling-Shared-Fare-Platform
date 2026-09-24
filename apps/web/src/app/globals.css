@@ -1,2 +1,47 @@
-/* Global styles. The neo-brutalist design tokens are added with the UI kit (ADR-0013). */
+/* Global styles: the neo-brutalist design tokens (ADR-0013).
+   Change a colour, border or shadow here and every screen follows, because pages only use the
+   components in src/components/ui. */
 @import 'tailwindcss';
+
+@theme {
+  /* Colours: flat, no gradients. Text is always black, which keeps contrast high on every accent. */
+  --color-page: #fffdf5;
+  --color-ink: #000000;
+  --color-action: #ffd23f; /* yellow: primary actions */
+  --color-warning: #ff6b9d; /* pink: fees and warnings */
+  --color-info: #3ec1d3; /* cyan: information */
+  --color-success: #a3e635; /* lime: success */
+  --color-danger: #ff4d4d; /* red: errors */
+  --color-muted: #d4d4d4; /* grey: finished or cancelled */
+
+  /* The hard offset shadow, with no blur. */
+  --shadow-brutal: 4px 4px 0 var(--color-ink);
+  --shadow-brutal-small: 2px 2px 0 var(--color-ink);
+
+  /* Fonts come from next/font in the root layout. */
+  --font-display: var(--font-archivo-black), var(--font-bengali), 'Arial Black', sans-serif;
+  --font-sans: var(--font-space-grotesk), var(--font-bengali), system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', var(--font-bengali), monospace;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    line-height: 1.1;
+  }
+
+  /* NFR-USA-05: a thick focus outline on everything that can receive keyboard focus. */
+  :focus-visible {
+    outline: 3px solid var(--color-ink);
+    outline-offset: 3px;
+  }
+}

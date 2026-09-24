@@ -23,3 +23,4 @@ ADRs are never edited after acceptance except to change their status. A changed 
 | [0010](0010-polling-for-status-updates.md) | Client polling for live status | Proposed | FR-PAX-07, NFR-PERF-03 |
 | [0011](0011-testing-vitest-supertest-real-postgres.md) | Vitest + Supertest against a real PostgreSQL | Proposed | DR-10, NFR-MNT-04 |
 | [0012](0012-frontend-nextjs-tanstack-query-tailwind.md) | Next.js App Router + TanStack Query + Tailwind CSS | Proposed | DC-01, NFR-USA-* |
+| [0013](0013-neo-brutalist-ui-style.md) | Neo-brutalist visual style, defined once as tokens and a small UI kit | Accepted | NFR-USA-01…06 |

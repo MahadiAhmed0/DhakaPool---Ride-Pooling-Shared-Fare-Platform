@@ -8,7 +8,7 @@
 | Standard | ISO/IEC/IEEE 29148:2018 — Software Requirements Specification (tailored for an MVP) |
 | Product | Dhaka Tesla Pool — ride-pooling & shared-fare platform (MVP) |
 | Source brief | *Dhaka Tesla Pool PRD — Internship Challenge* (RoBenDevs) — referenced as **PRD** |
-| Version | 0.3 (Draft for review) |
+| Version | 0.4 (Draft for review) |
 | Status | Draft |
 | Author | Golam Mahadi Ahmed |
 | Traceability workbook | [`DhakaPool_SRS_Tracker.xlsx`](DhakaPool_SRS_Tracker.xlsx) |
@@ -20,6 +20,7 @@
 | 0.1 | 2026-09-23 | Golam Mahadi Ahmed | Initial draft: scope, functional/non-functional requirements, state machines, business rules, assumptions |
 | 0.2 | 2026-09-24 | Golam Mahadi Ahmed | Aligned with the architecture phase: §7 data model synced to [ERD.md](ERD.md) (added `sessions`; `driver_status` renamed `driver_profiles`; zone code as key; capacity snapshot on pools). Decisions D-13…D-23 recorded with ADR links. Open issues OI-01…OI-03 resolved. |
 | 0.3 | 2026-09-24 | Golam Mahadi Ahmed | Added the same-gender ride option: FR-AUTH-01 (optional gender), FR-PAX-11, FR-POOL-11/12, FR-DRV-06, BR-02 (f), BR-18, scenario E5, data model, UI, assumptions A-19…A-21, decision D-24. |
+| 0.4 | 2026-09-24 | Golam Mahadi Ahmed | Decision D-25: neo-brutalist visual style for the web app (ADR-0013). No requirement changed. |
 
 ---
 
@@ -758,6 +759,7 @@ The workbook maps each requirement to its method and test case IDs.
 | D-22 | The frontend uses the Next.js App Router, TanStack Query (polling) and Tailwind CSS ([ADR-0012](adr/0012-frontend-nextjs-tanstack-query-tailwind.md)). | Vite + React Router; SWR; component libraries | Built-in loading/error states and polling; a small, maintainable UI stack. |
 | D-23 | Schema choices: a `pool_members` link table, `pools.capacity` snapshot, a `driver_profiles` table, zone code as natural key, UUID ids, and a polymorphic append-only `status_history` ([ERD §8](ERD.md#8-design-rationale)). | `ride_requests.pool_id`; CHECK via trigger; driver columns on users | Row-local CHECK for capacity, re-matching history, driver-only ownership that is structural. |
 | D-24 | Add an optional same-gender ride option, enforced as a pool-level restriction under the pool lock (BR-18). | Driver-gender matching; mandatory gender; separate fare for restricted rides | Improves rider comfort and safety with a minimal model change, reusing the existing lock and matching path. Fare rules are unchanged. |
+| D-25 | The web app uses a neo-brutalist visual style: 3 px black borders, hard offset shadows, flat bold colours with black text, defined once as tokens and a small component kit ([ADR-0013](adr/0013-neo-brutalist-ui-style.md)). | Minimal Tailwind with no defined style; a component library (MUI, shadcn/ui) | High contrast and visible focus by design (NFR-USA-05), a recognisable look without a library dependency, and one place to change the look. |
 
 ### 13.3 Reference data — zones, distances, adjacency
 

@@ -1,23 +1,9 @@
 // The errors the API can return (SRS §8.2). Each has a stable code and a human-readable message.
 // Services throw these; the error handler turns them into the standard error JSON.
+import type { ApiErrorCode } from '@dhakapool/shared';
 
-export type ErrorCode =
-  | 'VALIDATION_ERROR'
-  | 'UNAUTHENTICATED'
-  | 'FORBIDDEN'
-  | 'NOT_FOUND'
-  | 'INVALID_STATE_TRANSITION'
-  | 'CAPACITY_EXCEEDED'
-  | 'ACTIVE_REQUEST_EXISTS'
-  | 'ACTIVE_POOL_EXISTS'
-  | 'POOL_NOT_OPEN'
-  | 'DRIVER_OFFLINE'
-  | 'CONFLICT'
-  | 'NOT_COMPATIBLE'
-  | 'INSUFFICIENT_BALANCE'
-  | 'RATE_LIMITED'
-  | 'INTERNAL_ERROR'
-  | 'SERVICE_UNAVAILABLE';
+// The list of codes is shared with the web app.
+export type ErrorCode = ApiErrorCode;
 
 export type ConflictCode =
   | 'INVALID_STATE_TRANSITION'

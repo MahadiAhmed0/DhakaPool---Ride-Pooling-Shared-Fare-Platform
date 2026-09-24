@@ -2,6 +2,7 @@
 export * from './auth.ts';
 export * from './drivers.ts';
 export * from './enums.ts';
+export * from './errors.ts';
 export * from './fares.ts';
 export * from './health.ts';
 export * from './money.ts';

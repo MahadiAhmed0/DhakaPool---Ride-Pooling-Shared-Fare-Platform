@@ -8,7 +8,9 @@ import type {
   RideTrip,
   RideView,
 } from '@dhakapool/shared';
+import { CANCELLATION_FEE_PAISA } from '../../config/rules.ts';
 import { paisaFromDb } from '../../db/money.ts';
+import { cancellationPolicy } from '../../domain/cancellation.ts';
 import type { Fare } from '../../generated/prisma/client.ts';
 import type { TimelineEntry } from '../audit/audit.service.ts';
 import { estimateFare } from '../fares/fares.service.ts';
@@ -56,6 +58,15 @@ function toRideTrip(ride: RideRow): RideTrip | null {
   };
 }
 
+// BR-07: free before the driver arrives, the fee after, and not at all once the trip has started.
+function toCancellation(status: RideStatus): RideView['cancellation'] {
+  const policy = cancellationPolicy(status);
+  return {
+    isAllowed: policy !== 'FORBIDDEN',
+    feePaisa: policy === 'FEE' ? CANCELLATION_FEE_PAISA : 0,
+  };
+}
+
 function isoOrNull(date: Date | null): string | null {
   return date ? date.toISOString() : null;
 }
@@ -82,6 +93,7 @@ export async function toRideView(ride: RideRow): Promise<RideView> {
       status: payment.status,
       amountPaisa: paisaFromDb(payment.amountPaisa),
     })),
+    cancellation: toCancellation(ride.status),
     trip: toRideTrip(ride),
   };
 }
