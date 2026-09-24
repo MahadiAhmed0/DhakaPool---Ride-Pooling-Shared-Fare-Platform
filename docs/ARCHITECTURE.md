@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.3 (Draft for review) |
+| Version | 0.4 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.3](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -13,6 +13,7 @@
 | 0.1 | 2026-09-24 | Initial architecture: containers, module layout, key flows, concurrency strategy, security, deployment |
 | 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): matching reason, pool restriction maintenance, data minimisation |
 | 0.3 | 2026-09-24 | Synced with the project setup: `config/rules.ts` and `logger.ts` in the layout, Node-based container health checks on `node:24-bookworm-slim` images, `DB_PORT` variable |
+| 0.4 | 2026-09-24 | Synced with the auth module: rate limiting keyed on the client IP behind one trusted proxy hop; sign-out returns 204 |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -331,7 +332,7 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 | Data minimisation | Passenger ride DTOs include `shared`, `coRiderCount` and the pool's `genderRestriction` badge only (A-09). No user's gender is returned to anyone except that user (A-20). The driver pool DTO includes member names, fares, payment methods and the restriction badge, but not members' genders (A-10). |
 | Input validation | Zod schemas from `packages/shared`, `.strict()` (unknown keys rejected). UUID path params are validated. Enums are validated against the shared definitions. |
 | Transport & headers | `helmet()` defaults; JSON body limit 100 kB; `cors({ origin: WEB_ORIGIN, credentials: true })` only matters for direct API access, since the browser uses the proxy. |
-| Rate limiting | `express-rate-limit` on `/api/auth/login` and `/signup`: 10 per minute per IP. Memory store, which is acceptable for one instance and noted in §12. |
+| Rate limiting | `express-rate-limit` on `/api/auth/login` and `/signup`: 10 per minute per IP. Memory store, which is acceptable for one instance and noted in §12. Express trusts exactly one proxy hop (`trust proxy = 1`, the web app's `/api` proxy), so the limit applies per client IP rather than to every user behind Next.js. |
 | SQL injection | Prisma query API. The few raw queries use tagged templates (`$queryRaw` with parameters), never `$queryRawUnsafe`. |
 | Secrets | Only from environment variables, validated at boot by a Zod `env.ts`. `.env` is git-ignored; `.env.example` holds placeholders only. |
 | Errors | Production responses never include stacks. Every error carries `requestId`, which matches the log line. |
