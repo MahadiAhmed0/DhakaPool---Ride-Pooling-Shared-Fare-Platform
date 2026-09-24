@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.6 (Draft for review) |
+| Version | 0.7 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.3](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -16,6 +16,7 @@
 | 0.4 | 2026-09-24 | Synced with the auth module: rate limiting keyed on the client IP behind one trusted proxy hop; sign-out returns 204 |
 | 0.5 | 2026-09-24 | Synced with the zones and fares modules: the domain layer may use `@dhakapool/shared` types; zone reference data cached in memory; fare breakdown shape and `CURRENT_FARE_RATES`; test folder layout as built |
 | 0.6 | 2026-09-24 | Synced with the rides and audit modules: transition tables in the shared package, service function names, passenger expiry in its own transaction before each command, `command.rejected` WARN log |
+| 0.7 | 2026-09-24 | Synced with the drivers and pools modules: `GET /api/driver/availability`, matching signature and reasons as built, file-level service names, passenger cancel in MATCHED (pool lock, one re-read) |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -119,7 +120,7 @@ flowchart LR
 | `controller` | service, shared schemas | Read the validated input, call the service, map to a response DTO (e.g. hide co-rider data, A-09) | Transactions, SQL, rules |
 | `service` | repositories, domain, other modules' services, audit | Use-case orchestration, **transaction boundaries**, ownership checks, locking, audit writes | HTTP objects (`req`/`res`) |
 | `repository` | Prisma `TransactionClient` | Queries. Every function takes the `tx` it runs in. | Rules, HTTP |
-| `domain` | nothing but `@dhakapool/shared` types and tables (pure) | `fare.ts`, `matching.ts`, `state-machine.ts`, `money.ts`, `errors.ts` | I/O, Prisma, Date.now (time is passed in) |
+| `domain` | nothing but `@dhakapool/shared` types and tables (pure) | `fare.ts`, `matching.ts`, `pool-restriction.ts`, `state-machine.ts`, `cancellation.ts`, `money.ts`, `errors.ts` | I/O, Prisma, Date.now (time is passed in) |
 
 **Transactions are owned by services.** A service opens `withTransaction(async (tx) => { … })` and passes `tx` to every repository call and to `audit.record(tx, …)`. Either everything commits together or nothing does (NFR-CON-02, FR-HIST-01).
 
@@ -131,8 +132,8 @@ flowchart LR
 | `zones` | `GET /api/zones` | `listZones`, `distanceBetween` (BR-09), `areNeighbours` (BR-08). Reference data is read once and kept in memory; a failed read is not cached. |
 | `fares` | `POST /api/fares/estimate` | `estimateFare({ pickupZoneCode, destinationZoneCode, seats })` → distance, rates, and the solo and pooled breakdowns |
 | `rides` | `POST /api/rides`, `GET /api/rides`, `GET /api/rides/:id`, `POST /api/rides/:id/cancel` | `createRide`, `listRidesForPassenger`, `getRideForPassenger` (`rides.service.ts`); `cancelRideByPassenger` (`ride-cancellation.service.ts`); `expireOverdueRides(tx, passengerId?)` (`ride-expiry.service.ts`); `toRideView` (`ride-view.ts`) |
-| `drivers` | `PUT /api/driver/availability`, `GET /api/driver/requests`, `POST /api/driver/requests/:id/accept`, `GET /api/driver/pools` | `setAvailability`, `listRelevantRequests`, `acceptRequest` (delegates to pools) |
-| `pools` | `POST /api/pools/:id/arrive`, `/start`, `/cancel`, `POST /api/pools/:id/members/:rideId/complete`, `/no-show`, `/cash-collected` | `addMember`, `markArrived`, `startTrip` (locks fares), `dropOff`, `cancelPool`, `markNoShow`, `markCashCollected` |
+| `drivers` | `GET` · `PUT /api/driver/availability`, `GET /api/driver/requests`, `POST /api/driver/requests/:id/accept`, `GET /api/driver/pools` | `getDriverStatus`, `setAvailability`, `loadDriver`, `assertOnline` (`drivers.service.ts`); `listRelevantRequests` (`request-feed.service.ts`); accept delegates to `pools` |
+| `pools` | `POST /api/pools/:id/arrive`, `/start`, `/cancel`, `POST /api/pools/:id/members/:rideId/complete`, `/no-show`, `/cash-collected` | `acceptRequest` (`accept-request.service.ts`); `lockActivePool`, `getPoolView`, `toMatchPool` (`pools.service.ts`); `lockPoolOfRide`, `leavePoolBeforeStart` (`leave-pool.service.ts`); later `markArrived`, `startTrip` (locks fares), `dropOff`, `cancelPool`, `markNoShow`, `markCashCollected` |
 | `wallet` | `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/topup` | `getBalancePaisa(tx, …)`, `getWallet`, `topUp`, `debitForRide(tx, …)`, `chargeCancellationFee(tx, …)` |
 | `audit` | *(internal)* | `recordTransition(tx, { entityType, entityId, fromStatus, toStatus, actor, reason })`, `recordTransitions(tx, [...])`, `listTimeline(entityType, entityId)` |
 | `health` | `GET /health` | DB `SELECT 1` → `{ status, db }` |
@@ -141,9 +142,9 @@ flowchart LR
 
 - **`fare.ts`** implements BR-10 exactly: `computeFare({ distanceM, seats, pooled, rates }) → { pooled, seats, basePaisa, distanceChargePaisa, discountPaisa, farePerSeatPaisa, totalPaisa }` (the shared `FareBreakdown` type). Integers in, integers out. The current rates are `CURRENT_FARE_RATES` in `config/rules.ts`; the caller passes them in, so the function never reads the environment.
 - **`money.ts`** holds `roundHalfUpDiv(numerator, denominator)`. It rounds with the integer remainder, so no floating-point division is involved (BR-13).
-- **`matching.ts`** implements BR-02: `isCompatible(request, pool, members, adjacency, now) → { ok: true } | { ok: false, reason }`. The reasons are `DIFFERENT_PICKUP`, `NOT_OPTED_IN`, `DESTINATION_NOT_ADJACENT`, `JOIN_WINDOW_PASSED`, `GENDER_RESTRICTED` (BR-18), `NO_SEATS` and `POOL_NOT_OPEN`.
+- **`matching.ts`** implements BR-02: `isCompatible(request, pool, rules) → { ok: true } | { ok: false, reason }`. `pool` carries its active members; `rules` carries the join window and an `areNeighbours(a, b)` function built from the cached adjacency list, so the function stays pure. The join window compares the request's `requested_at` with the pool's `created_at`, so no clock is needed. The checks run in a fixed order and the first failure is the reason: `POOL_NOT_OPEN`, `NOT_OPTED_IN` (including private pools), `DIFFERENT_PICKUP`, `NO_SEATS`, `JOIN_WINDOW_PASSED`, `DESTINATION_NOT_ADJACENT`, `GENDER_RESTRICTED` (BR-18). `pools/match-refusal.ts` maps `POOL_NOT_OPEN` and `NO_SEATS` to 409 (`POOL_NOT_OPEN`, `CAPACITY_EXCEEDED`) and the rest to 422 `NOT_COMPATIBLE` with the reason in `details`.
 - **`cancellation.ts`** gives `cancellationPolicy(status) → FREE | FEE | FORBIDDEN` (BR-07). Whether cancelling is allowed at all comes from the state machine.
-- **`pool-restriction.ts`** computes `genderRestriction(members) → NONE | FEMALE_ONLY | MALE_ONLY` (BR-18). `pools.service` stores the result on the pool whenever a member joins or leaves, inside the same locked transaction.
+- **`pool-restriction.ts`** computes `genderRestriction(members) → NONE | FEMALE_ONLY | MALE_ONLY` and `fitsRestriction(restriction, gender)` (BR-18). The pools services store the result on the pool whenever a member joins or leaves, inside the same locked transaction.
 - **`state-machine.ts`** checks moves against the SRS §5 transition tables. The tables are data in `packages/shared/src/transitions.ts` (`RIDE_TRANSITIONS`, `POOL_TRANSITIONS`), so the web app can derive its buttons from the same source:
 
 ```ts
@@ -218,7 +219,7 @@ sequenceDiagram
     A->>DB: INSERT pool_members (seats 1)
     A->>DB: UPDATE pools SET occupied_seats = occupied_seats + 1
     note right of DB: CHECK occupied_seats ≤ capacity is the last line of defence
-    A->>DB: INSERT status_history × 2 (ride REQUESTED → MATCHED, pool member added)
+    A->>DB: INSERT status_history (pool null → OPEN when new; ride REQUESTED → MATCHED)
     note over A,DB: COMMIT
     end
     A-->>J: 200 pool (2 / 3 seats)
@@ -309,6 +310,8 @@ In `DRIVER_ARRIVED`, the same transaction also inserts the ৳20 `CANCELLATION_F
   - `23505` (unique_violation) on `ride_requests_one_active_per_passenger` → 409 `ACTIVE_REQUEST_EXISTS`
   - `23505` on `pools_one_active_per_driver` → 409 `ACTIVE_POOL_EXISTS`
   - lock timeout → 503
+- **Passenger cancel in MATCHED** locks the pool (never the driver row), then moves the ride by compare-and-set, then frees the seats and recalculates the restriction. If the compare-and-set finds that the status changed (a driver accepted between the read and the write), the command re-reads the status once and cancels from the new one. The lock order stays pool → ride, so it cannot deadlock with an accept (driver → pool → ride).
+- **Waiting for a pool lock** can end with the pool no longer active (its last member left). `lockActivePool` then reports no active pool, and the accept starts a new one.
 
 ### 7.3 Request expiry without a queue (NFR-REL-04, ADR-0006)
 
@@ -412,7 +415,7 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 │       │   ├── logger.ts            # pino logger with redaction
 │       │   ├── db/                  # prisma client, withTransaction, lock helpers, error mapping
 │       │   ├── middleware/          # request-id, logger, session, require-role, validate, rate-limit, error-handler
-│       │   ├── domain/              # fare.ts, matching.ts, state-machine.ts, money.ts, errors.ts (pure)
+│       │   ├── domain/              # fare, matching, pool-restriction, state-machine, cancellation, money, errors (pure)
 │       │   ├── modules/
 │       │   │   ├── auth/            # auth.routes.ts · auth.controller.ts · auth.service.ts · auth.repository.ts
 │       │   │   ├── zones/  fares/  rides/  drivers/  pools/  wallet/  audit/  health/

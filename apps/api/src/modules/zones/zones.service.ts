@@ -48,8 +48,8 @@ export async function listZones(): Promise<Zone[]> {
   return (await loadZoneReference()).zones;
 }
 
-// An unknown zone is the passenger's mistake, so it is a 400 that names the field (FR-PAX-03).
-async function assertZoneExists(zoneCode: string, field: string): Promise<void> {
+// An unknown zone is the caller's mistake, so it is a 400 that names the field (FR-PAX-03).
+export async function assertZoneExists(zoneCode: string, field: string): Promise<void> {
   const { zones } = await loadZoneReference();
   if (!zones.some((zone) => zone.code === zoneCode)) {
     const message = `There is no zone with the code ${zoneCode}.`;
@@ -77,4 +77,12 @@ export async function distanceBetween(
 export async function areNeighbours(zoneCode: string, otherZoneCode: string): Promise<boolean> {
   const { neighbours } = await loadZoneReference();
   return neighbours.has(pairKey(zoneCode, otherZoneCode));
+}
+
+// The same neighbour check as a plain function, for the pure matching rule (domain/matching.ts).
+export async function loadNeighbourCheck(): Promise<
+  (zoneCode: string, otherZoneCode: string) => boolean
+> {
+  const { neighbours } = await loadZoneReference();
+  return (zoneCode, otherZoneCode) => neighbours.has(pairKey(zoneCode, otherZoneCode));
 }
