@@ -8,14 +8,16 @@ import { findPool, type PoolRow } from './pools.repository.ts';
 export type PoolMember = PoolRow['members'][number];
 
 // Someone else's pool answers exactly like a missing one, so it reveals nothing (SRS §8.2).
+// The owner of a pool never changes, so it is checked before locking: another driver can never
+// hold a lock on this driver's trip. The pool is read again once locked.
 export async function lockOwnPool(tx: Tx, driverId: string, poolId: string): Promise<PoolRow> {
-  await lockDriver(tx, driverId);
-  await lockPool(tx, poolId);
   const pool = await findPool(tx, poolId);
   if (!pool || pool.driverId !== driverId) {
     throw new NotFoundError('Trip not found.');
   }
-  return pool;
+  await lockDriver(tx, driverId);
+  await lockPool(tx, poolId);
+  return (await findPool(tx, poolId)) ?? pool;
 }
 
 export function findMember(pool: PoolRow, rideId: string): PoolMember {

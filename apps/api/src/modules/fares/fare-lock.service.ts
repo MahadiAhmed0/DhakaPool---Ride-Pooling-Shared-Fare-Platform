@@ -41,7 +41,10 @@ export async function lockRideFares(tx: Tx, rides: OnBoardRide[], pooled: boolea
 }
 
 // BR-07: one flat fee per ride, not per seat. For a fee the breakdown columns are 0 (ERD §3).
-export async function recordCancellationFee(tx: Tx, ride: OnBoardRide): Promise<number> {
+export async function recordCancellationFee(
+  tx: Tx,
+  ride: { id: string; seats: number },
+): Promise<number> {
   await insertFares(tx, [
     {
       rideRequestId: ride.id,

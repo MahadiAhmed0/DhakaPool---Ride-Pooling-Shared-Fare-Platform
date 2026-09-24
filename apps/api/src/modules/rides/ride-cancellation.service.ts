@@ -1,13 +1,14 @@
 // A passenger cancels their own ride (FR-PAX-08, BR-07).
 // - REQUESTED (RT-03): free; nothing else to undo.
 // - MATCHED (RT-06): free; the seats in the pool are freed and an empty pool ends (FR-POOL-06, -07).
-// - DRIVER_ARRIVED (RT-09) costs the cancellation fee and is added with the trip lifecycle.
+// - DRIVER_ARRIVED (RT-09): the same, plus the cancellation fee (FR-FARE-05).
 // - STARTED or finished: refused.
 import type { RideDetail, RideStatus } from '@dhakapool/shared';
 import { type Tx, withTransaction } from '../../db/transaction.ts';
 import { cancellationPolicy } from '../../domain/cancellation.ts';
 import { ConflictError, NotFoundError } from '../../domain/errors.ts';
 import { recordTransition } from '../audit/audit.service.ts';
+import { recordCancellationFee } from '../fares/fare-lock.service.ts';
 import { leavePoolBeforeStart, lockPoolOfRide } from '../pools/leave-pool.service.ts';
 import { expireOverdueRidesOf } from './ride-expiry.service.ts';
 import { findPassengerRideStatus, markRideCancelled } from './rides.repository.ts';
@@ -50,11 +51,21 @@ async function cancelFrom(cancellation: Cancellation, fromStatus: RideStatus): P
   return true;
 }
 
-// RT-06: lock the pool first (lock order pool → ride), then cancel the ride, then free its seats.
-async function cancelMatchedRide(cancellation: Cancellation): Promise<boolean> {
+// RT-06, RT-09: lock the pool first (lock order pool → ride), cancel the ride, charge the fee if
+// the driver had already arrived, then free the seats.
+async function cancelRideInPool(
+  cancellation: Cancellation,
+  fromStatus: RideStatus,
+): Promise<boolean> {
   const membership = await lockPoolOfRide(cancellation.tx, cancellation.rideId);
-  if (!membership || !(await cancelFrom(cancellation, 'MATCHED'))) {
+  if (!membership || !(await cancelFrom(cancellation, fromStatus))) {
     return false;
+  }
+  if (cancellationPolicy(fromStatus) === 'FEE') {
+    await recordCancellationFee(cancellation.tx, {
+      id: cancellation.rideId,
+      seats: membership.seats,
+    });
   }
   await leavePoolBeforeStart(cancellation.tx, membership);
   return true;
@@ -73,10 +84,7 @@ async function tryToCancel(cancellation: Cancellation): Promise<boolean> {
   if (status === 'REQUESTED') {
     return cancelFrom(cancellation, 'REQUESTED');
   }
-  if (status === 'MATCHED') {
-    return cancelMatchedRide(cancellation);
-  }
-  throw cannotCancel(status, 'Cancelling after the driver has arrived is not available yet.');
+  return cancelRideInPool(cancellation, status); // MATCHED or DRIVER_ARRIVED
 }
 
 export async function cancelRideByPassenger(

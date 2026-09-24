@@ -128,3 +128,9 @@ export async function findDriverPools(tx: Tx, page: PoolPage): Promise<PoolRow[]
     include: POOL_INCLUDE,
   });
 }
+
+// PT-04: when the driver cancels, every active member leaves and all seats are free again.
+export async function markAllMembersLeft(tx: Tx, poolId: string, now: Date): Promise<void> {
+  await tx.poolMember.updateMany({ where: { poolId, leftAt: null }, data: { leftAt: now } });
+  await tx.pool.update({ where: { id: poolId }, data: { occupiedSeats: 0 } });
+}

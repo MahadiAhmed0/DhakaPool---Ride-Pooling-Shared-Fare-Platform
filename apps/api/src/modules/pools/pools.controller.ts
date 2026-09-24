@@ -1,6 +1,7 @@
 // HTTP handlers for a driver's trip commands (SRS §8.2). Each returns the updated trip.
 import type { Request, Response } from 'express';
 import { idParam } from '../../middleware/id-param.ts';
+import { cancelTrip, markNoShow } from './cancel-trip.service.ts';
 import { dropOff } from './drop-off.service.ts';
 import { markArrived, startTrip } from './trip.service.ts';
 
@@ -22,4 +23,15 @@ export async function postStart(req: Request, res: Response): Promise<void> {
 export async function postDropOff(req: Request, res: Response): Promise<void> {
   const rideId = idParam(req, 'rideId', 'This passenger is not in this trip.');
   res.status(200).json({ pool: await dropOff(req.user!.id, poolIdFrom(req), rideId) });
+}
+
+// POST /api/pools/:id/cancel — cancel the trip before it starts (FR-DRV-11)
+export async function postCancelTrip(req: Request, res: Response): Promise<void> {
+  res.status(200).json({ pool: await cancelTrip(req.user!.id, poolIdFrom(req)) });
+}
+
+// POST /api/pools/:id/members/:rideId/no-show — the passenger never came (FR-DRV-12)
+export async function postNoShow(req: Request, res: Response): Promise<void> {
+  const rideId = idParam(req, 'rideId', 'This passenger is not in this trip.');
+  res.status(200).json({ pool: await markNoShow(req.user!.id, poolIdFrom(req), rideId) });
 }
