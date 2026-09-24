@@ -1,6 +1,6 @@
 # ADR-0007: REST/JSON with explicit command endpoints for state transitions
 
-- **Status:** Proposed · 2026-09-24
+- **Status:** Accepted · 2026-09-25 (proposed 2026-09-24; accepted once implemented and verified by the test suite)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** BR-06, SRS D-10, SRS §8.2, PRD §6 (API style must be justified)
 

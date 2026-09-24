@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ERD-001 |
-| Version | 0.4 (Draft for review) |
+| Version | 1.0 |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS §7 Data requirements](SRS.md#7-data-requirements), [Architecture §7](ARCHITECTURE.md#7-consistency--concurrency-strategy-nfr-con-0106-adr-0006) |
 | DBMS / access | PostgreSQL 16 via Prisma ([ADR-0002](adr/0002-postgresql.md), [ADR-0004](adr/0004-prisma-with-hand-written-integrity-sql.md)) |
@@ -14,6 +14,7 @@
 | 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): `users.gender`, `ride_requests.same_gender_only`, `pools.gender_restriction`, new enums, CHECK constraint, invariant, seed genders |
 | 0.3 | 2026-09-24 | Synced with the implemented schema: `wallet_transactions.reason` (records the SEED opening balance), `status_history.id` is an auto-increment bigint, migration file names |
 | 0.4 | 2026-09-24 | `audit_entity` gains `PAYMENT` (migration `20260924140724_payment_audit_entity`); payment settlement rules as implemented |
+| 1.0 | 2026-09-25 | Release baseline for v1.0.0; the schema and migrations match this document. No change to the model. |
 
 ---
 

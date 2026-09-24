@@ -1,6 +1,6 @@
 # ADR-0001: Modular monolith — Next.js web + one Express API + PostgreSQL
 
-- **Status:** Proposed · 2026-09-24
+- **Status:** Accepted · 2026-09-25 (proposed 2026-09-24; accepted once implemented and verified by the test suite)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** DC-05, DR-14, PRD §9, [Architecture §2](../ARCHITECTURE.md#2-architectural-style)
 

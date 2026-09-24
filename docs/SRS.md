@@ -8,8 +8,8 @@
 | Standard | ISO/IEC/IEEE 29148:2018 — Software Requirements Specification (tailored for an MVP) |
 | Product | Dhaka Tesla Pool — ride-pooling & shared-fare platform (MVP) |
 | Source brief | *Dhaka Tesla Pool PRD — Internship Challenge* (RoBenDevs) — referenced as **PRD** |
-| Version | 0.4 (Draft for review) |
-| Status | Draft |
+| Version | 0.5 |
+| Status | Baselined for release v1.0.0 |
 | Author | Golam Mahadi Ahmed |
 | Traceability workbook | [`DhakaPool_SRS_Tracker.xlsx`](DhakaPool_SRS_Tracker.xlsx) |
 
@@ -21,6 +21,7 @@
 | 0.2 | 2026-09-24 | Golam Mahadi Ahmed | Aligned with the architecture phase: §7 data model synced to [ERD.md](ERD.md) (added `sessions`; `driver_status` renamed `driver_profiles`; zone code as key; capacity snapshot on pools). Decisions D-13…D-23 recorded with ADR links. Open issues OI-01…OI-03 resolved. |
 | 0.3 | 2026-09-24 | Golam Mahadi Ahmed | Added the same-gender ride option: FR-AUTH-01 (optional gender), FR-PAX-11, FR-POOL-11/12, FR-DRV-06, BR-02 (f), BR-18, scenario E5, data model, UI, assumptions A-19…A-21, decision D-24. |
 | 0.4 | 2026-09-24 | Golam Mahadi Ahmed | Decision D-25: neo-brutalist visual style for the web app (ADR-0013). No requirement changed. |
+| 0.5 | 2026-09-25 | Golam Mahadi Ahmed | Baselined for release v1.0.0. No requirement changed. Implementation status and verification evidence for every requirement are in the traceability workbook; ADR-0001…0013 are Accepted. |
 
 ---
 

@@ -3,9 +3,9 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.13 (Draft for review) |
+| Version | 1.0 |
 | Author | Golam Mahadi Ahmed |
-| Implements | [SRS DTP-SRS-001 v0.4](SRS.md) |
+| Implements | [SRS DTP-SRS-001 v0.5](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
 
 | Version | Date | Change |
@@ -21,8 +21,9 @@
 | 0.9 | 2026-09-24 | Synced with the wallet module: settlement service, cash collection on the pools routes, PAYMENT audit entity, cash fall-back and unpaid fees, unreachable-database codes mapped to 503 |
 | 0.10 | 2026-09-24 | Neo-brutalist visual style (ADR-0013) in §10; implements SRS v0.4 |
 | 0.11 | 2026-09-25 | Synced with the passenger UI: session guard in `lib/server-session.ts`, per-screen query hooks, cursor-paged lists, polling as built, taka-to-paisa top-up input, web layout in §11 |
-| 0.13 | 2026-09-25 | Hosting as configured: Render instead of Railway (free plan cannot run a service), Supabase session pooler, `render.yaml` and `apps/web/vercel.json`, `TRUST_PROXY_HOPS`, migrations over `DIRECT_URL` |
 | 0.12 | 2026-09-25 | Synced with the driver UI: driver query hooks and 4 s refresh of the feed and the active pool, buttons from the shared transition tables via `lib/driver-moves.ts`, one command hook per trip button, Cash collected also in the trip history |
+| 0.13 | 2026-09-25 | Hosting as configured: Render instead of Railway (free plan cannot run a service), Supabase session pooler, `render.yaml` and `apps/web/vercel.json`, `TRUST_PROXY_HOPS`, migrations over `DIRECT_URL` |
+| 1.0 | 2026-09-25 | Release baseline for v1.0.0: implements SRS v0.5; ADR-0001…0013 Accepted; the implementation matches this document |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 

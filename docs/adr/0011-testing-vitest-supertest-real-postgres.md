@@ -1,6 +1,6 @@
 # ADR-0011: Vitest + Supertest against a real PostgreSQL
 
-- **Status:** Proposed · 2026-09-24
+- **Status:** Accepted · 2026-09-25 (proposed 2026-09-24; accepted once implemented and verified by the test suite)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** DR-10, NFR-MNT-02/04, [Architecture §13](../ARCHITECTURE.md#13-testing-architecture-dr-10-nfr-mnt-04-adr-0011), Tracker *Test_Cases* TC-01…TC-46
 

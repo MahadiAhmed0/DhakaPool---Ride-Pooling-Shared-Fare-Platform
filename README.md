@@ -256,7 +256,7 @@ docker compose up -d db && npm test          # on your machine
 docker compose run --rm api npm test         # inside Docker
 ```
 
-244 automated tests (231 API, 13 shared) run against a real PostgreSQL test database, never a mock, because locks and constraints only behave truthfully on the real engine. Test names read as examples with the personas, for example *"rejects Shirin when Bullet's last seat is already taken"*.
+245 automated tests (232 API, 13 shared) run against a real PostgreSQL test database, never a mock, because locks and constraints only behave truthfully on the real engine. Test names read as examples with the personas, for example *"rejects Shirin when Bullet's last seat is already taken"*.
 
 | Risk | What proves it | Where |
 |---|---|---|
