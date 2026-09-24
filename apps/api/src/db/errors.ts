@@ -16,6 +16,9 @@ const LOCK_NOT_AVAILABLE = '55P03';
 const DEADLOCK_DETECTED = '40P01';
 // Prisma codes: P2028 = transaction timed out or was closed.
 const TRANSACTION_ERROR = 'P2028';
+// P1001 = can't reach the database, P1002 = it timed out, P1017 = it closed the connection.
+// All of them mean "the database is down right now" (NFR-REL-03).
+const DATABASE_UNREACHABLE = new Set(['P1001', 'P1002', 'P1017']);
 
 // Which business error each named constraint or index stands for.
 const CONSTRAINT_ERRORS: Record<string, () => AppError> = {
@@ -62,8 +65,13 @@ function readDatabaseFailure(error: Prisma.PrismaClientKnownRequestError): Datab
   return { sqlState: cause.originalCode, constraint: constraintNameOf(cause) };
 }
 
+// The database is down or the transaction could not finish: the client may simply retry.
+function isDatabaseOutage(error: Prisma.PrismaClientKnownRequestError): boolean {
+  return error.code === TRANSACTION_ERROR || DATABASE_UNREACHABLE.has(error.code);
+}
+
 function mapKnownRequestError(error: Prisma.PrismaClientKnownRequestError): AppError | undefined {
-  if (error.code === TRANSACTION_ERROR) {
+  if (isDatabaseOutage(error)) {
     return new ServiceUnavailableError();
   }
   const { sqlState, constraint } = readDatabaseFailure(error);
