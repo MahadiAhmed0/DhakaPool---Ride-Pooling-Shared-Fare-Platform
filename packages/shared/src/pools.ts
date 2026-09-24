@@ -1,7 +1,13 @@
 // A pool (one Tesla trip) as its driver sees it (FR-DRV-06, FR-POOL-10). The driver sees each
 // member's name, trip, seats, status and fare, and the pool's same-gender badge, but never a
 // member's gender (A-10, A-20).
-import type { GenderRestriction, PaymentMethod, PoolStatus, RideStatus } from './enums.ts';
+import type {
+  GenderRestriction,
+  PaymentMethod,
+  PaymentStatus,
+  PoolStatus,
+  RideStatus,
+} from './enums.ts';
 
 export type DriverPoolMember = {
   rideId: string;
@@ -13,6 +19,7 @@ export type DriverPoolMember = {
   paymentMethod: PaymentMethod;
   estimatedFarePaisa: number; // the solo estimate, until the trip starts
   lockedFarePaisa: number | null; // the fare fixed at trip start (BR-12)
+  paymentStatus: PaymentStatus | null; // set at drop-off; PENDING_CASH shows "Cash collected"
 };
 
 export type DriverPoolView = {

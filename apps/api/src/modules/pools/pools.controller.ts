@@ -2,7 +2,7 @@
 import type { Request, Response } from 'express';
 import { idParam } from '../../middleware/id-param.ts';
 import { cancelTrip, markNoShow } from './cancel-trip.service.ts';
-import { dropOff } from './drop-off.service.ts';
+import { dropOff, markCashCollectedFor } from './drop-off.service.ts';
 import { markArrived, startTrip } from './trip.service.ts';
 
 function poolIdFrom(req: Request): string {
@@ -34,4 +34,10 @@ export async function postCancelTrip(req: Request, res: Response): Promise<void>
 export async function postNoShow(req: Request, res: Response): Promise<void> {
   const rideId = idParam(req, 'rideId', 'This passenger is not in this trip.');
   res.status(200).json({ pool: await markNoShow(req.user!.id, poolIdFrom(req), rideId) });
+}
+
+// POST /api/pools/:id/members/:rideId/cash-collected — the passenger paid in cash (FR-DRV-10)
+export async function postCashCollected(req: Request, res: Response): Promise<void> {
+  const rideId = idParam(req, 'rideId', 'This passenger is not in this trip.');
+  res.status(200).json({ pool: await markCashCollectedFor(req.user!.id, poolIdFrom(req), rideId) });
 }

@@ -33,11 +33,12 @@ export const CURRENT_FARE_RATES: FareRates = {
 };
 
 // Fixed rules (not tunable in the MVP).
-export const TOP_UP_MIN_PAISA = 5_000; // BR-17: ৳50 minimum top-up
-export const TOP_UP_MAX_PAISA = 500_000; // BR-17: ৳5,000 maximum top-up
 export const AUTH_ATTEMPTS_PER_MINUTE = 10; // NFR-SEC-07: sign-up and sign-in attempts per IP
 export const EXPIRY_SWEEP_INTERVAL_SECONDS = 60; // ARCHITECTURE §7.3: how often expiry runs
 export const REQUEST_FEED_LIMIT = 50; // FR-DRV-04: the most waiting requests shown to a driver at once
 
 // FR-PAX-03: 1–6 seats per request. Defined in the shared package because the web form checks it too.
 export { MAX_SEATS_PER_REQUEST } from '@dhakapool/shared';
+
+// BR-17: ৳50–৳5,000 per top-up. Also in the shared package, for the top-up form.
+export { TOP_UP_MAX_PAISA, TOP_UP_MIN_PAISA } from '@dhakapool/shared';

@@ -12,7 +12,11 @@ const POOL_INCLUDE = {
     orderBy: { joinedAt: 'asc' },
     include: {
       rideRequest: {
-        include: { passenger: { select: { fullName: true, gender: true } }, fares: true },
+        include: {
+          passenger: { select: { fullName: true, gender: true } },
+          fares: true,
+          payments: { select: { status: true, fare: { select: { type: true } } } },
+        },
       },
     },
   },

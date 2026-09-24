@@ -1,5 +1,5 @@
 // Database queries for ride requests.
-import { ACTIVE_RIDE_STATUSES, type RideStatus } from '@dhakapool/shared';
+import { ACTIVE_RIDE_STATUSES, type PaymentMethod, type RideStatus } from '@dhakapool/shared';
 import { prisma } from '../../db/client.ts';
 import type { Tx } from '../../db/transaction.ts';
 import type { Prisma } from '../../generated/prisma/client.ts';
@@ -8,6 +8,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 // are loaded — enough to count co-riders, and nothing that could leak their details (A-09).
 const RIDE_VIEW_INCLUDE = {
   fares: true,
+  payments: { include: { fare: { select: { type: true } } } },
   poolMembers: {
     where: { leftAt: null },
     include: {
@@ -86,16 +87,17 @@ export async function findLargestVehicleCapacity(): Promise<number | null> {
   return largest._max.capacity;
 }
 
-export async function findPassengerRideStatus(
+export type RideToCancel = { status: RideStatus; paymentMethod: PaymentMethod };
+
+export async function findRideToCancel(
   tx: Tx,
   passengerId: string,
   rideId: string,
-): Promise<RideStatus | null> {
-  const ride = await tx.rideRequest.findFirst({
+): Promise<RideToCancel | null> {
+  return tx.rideRequest.findFirst({
     where: { id: rideId, passengerId },
-    select: { status: true },
+    select: { status: true, paymentMethod: true },
   });
-  return ride?.status ?? null;
 }
 
 // Compare-and-set (NFR-CON-02): only cancels when the ride is still in the status the caller saw.

@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ERD-001 |
-| Version | 0.3 (Draft for review) |
+| Version | 0.4 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS §7 Data requirements](SRS.md#7-data-requirements), [Architecture §7](ARCHITECTURE.md#7-consistency--concurrency-strategy-nfr-con-0106-adr-0006) |
 | DBMS / access | PostgreSQL 16 via Prisma ([ADR-0002](adr/0002-postgresql.md), [ADR-0004](adr/0004-prisma-with-hand-written-integrity-sql.md)) |
@@ -13,6 +13,7 @@
 | 0.1 | 2026-09-24 | Initial physical model: 15 tables, enums, constraints, indexes, worked data example, design rationale |
 | 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): `users.gender`, `ride_requests.same_gender_only`, `pools.gender_restriction`, new enums, CHECK constraint, invariant, seed genders |
 | 0.3 | 2026-09-24 | Synced with the implemented schema: `wallet_transactions.reason` (records the SEED opening balance), `status_history.id` is an auto-increment bigint, migration file names |
+| 0.4 | 2026-09-24 | `audit_entity` gains `PAYMENT` (migration `20260924140724_payment_audit_entity`); payment settlement rules as implemented |
 
 ---
 
@@ -210,7 +211,7 @@ erDiagram
 | `payment_status` | `PENDING_CASH`, `PAID`, `UNPAID` | payments.status |
 | `charge_type` | `RIDE`, `CANCELLATION_FEE` | fares.type |
 | `wallet_txn_type` | `TOPUP`, `RIDE_PAYMENT`, `CANCELLATION_FEE` | wallet_transactions.type |
-| `audit_entity` | `RIDE_REQUEST`, `POOL`, `DRIVER` | status_history.entity_type |
+| `audit_entity` | `RIDE_REQUEST`, `POOL`, `DRIVER`, `PAYMENT` | status_history.entity_type |
 | `actor_role` | `PASSENGER`, `DRIVER`, `SYSTEM` | status_history.actor_role |
 
 Reason codes are stored as varchar so that adding one needs no migration: `cancel_reason` and `status_history.reason` take values such as `PASSENGER_CANCELLED`, `NO_SHOW`, `DRIVER_CANCELLED_POOL`, `ALL_MEMBERS_CANCELLED`, `EXPIRED`, `LAST_MEMBER_DROPPED_OFF`, `SEED`.
@@ -230,10 +231,10 @@ Reason codes are stored as varchar so that adding one needs no migration: `cance
 | **pools** | One Tesla trip: driver, vehicle, pickup zone, seats | `capacity` is **copied from the vehicle** at creation, so that `CHECK (occupied_seats <= capacity)` can live on the same row; a CHECK cannot read another table. `occupied_seats` is a maintained counter, updated only under the pool row lock. Partial unique index: one active pool per driver. `gender_restriction` is maintained under the pool row lock and recalculated when a member leaves (BR-18, FR-POOL-12). | FR-POOL-*, §5.2 |
 | **pool_members** | Which ride is in which pool, and with how many seats | Not a `pool_id` column on `ride_requests`, because a ride can leave one pool (driver cancels) and join another. Membership also has its own facts: seats, joined/left, drop-off order. Partial unique index: at most one *active* membership per ride (FR-POOL-09). | FR-POOL-09/10 |
 | **fares** | What was charged and why | The rate snapshot (base, per-km, bps, distance, seats, pooled) makes every fare re-computable by hand, forever (FR-FARE-03). `UNIQUE(ride_request_id, type)` allows one ride fare and at most one cancellation fee. For a fee row, the breakdown columns are 0 and `total_paisa` is the fee. | FR-FARE-*, BR-10…13 |
-| **payments** | How a charge was settled | `method` can differ from the ride's chosen method, because TeslaPay falls back to cash when the balance is short (A-14). `collected_by_id` records the driver who took the cash. | FR-PAY-03/04, BR-15/16 |
+| **payments** | How a charge was settled | One payment per charge (`fare_id` unique), written in the same transaction as the drop-off or the cancellation. A ride fare is `TESLAPAY · PAID` (with its ledger entry) or `CASH · PENDING_CASH`; `method` can differ from the ride's chosen method, because TeslaPay falls back to cash when the balance is short (A-14). A cancellation fee is `TESLAPAY · PAID`, or `UNPAID` for cash rides and short balances (FR-PAY-05). `collected_by_id` records the driver who took the cash. | FR-PAY-03…05, BR-15/16 |
 | **wallets** | TeslaPay balance per passenger | `CHECK (balance_paisa >= 0)`. The balance is updated with a guarded `UPDATE … WHERE balance_paisa >= amount`. | FR-PAY-01, FR-PAY-06 |
 | **wallet_transactions** | Append-only ledger | A signed amount (the sign is checked against the type), plus `balance_after_paisa` for easy audit. Invariant: **Σ amount = wallet balance**. The seed balance is itself a `TOPUP` row with `reason = 'SEED'` (the nullable `reason` column describes non-ride entries). | FR-PAY-02…06, NFR-CON-05 |
-| **status_history** | Audit trail for every lifecycle change | Polymorphic (`entity_type` + `entity_id`) so that rides, pools and driver availability share one timeline format, which means there is no FK on `entity_id`. `bigint identity` gives a total order even for same-millisecond events. An **append-only trigger** blocks UPDATE and DELETE. | FR-HIST-01…04 |
+| **status_history** | Audit trail for every lifecycle change | Polymorphic (`entity_type` + `entity_id`) so that rides, pools, driver availability and payments share one timeline format, which means there is no FK on `entity_id`. `bigint identity` gives a total order even for same-millisecond events. An **append-only trigger** blocks UPDATE and DELETE. | FR-HIST-01…04 |
 
 ### Column conventions
 
@@ -263,7 +264,7 @@ Prisma's schema language can express PKs, FKs, unique and regular indexes. It **
 
 ### 4.2 Hand-written SQL migration (`…_integrity_constraints/migration.sql`)
 
-Implemented in `apps/api/prisma/migrations/20260923232901_integrity_constraints/migration.sql`; the schema itself is `20260923232834_init`.
+Implemented in `apps/api/prisma/migrations/20260923232901_integrity_constraints/migration.sql`; the schema itself is `20260923232834_init`, and `20260924140724_payment_audit_entity` adds `PAYMENT` to `audit_entity`.
 
 ```sql
 -- CHECK constraints -----------------------------------------------------------

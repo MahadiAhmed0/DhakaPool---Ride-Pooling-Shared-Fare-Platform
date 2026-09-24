@@ -1,17 +1,17 @@
 // A passenger cancels their own ride (FR-PAX-08, BR-07).
 // - REQUESTED (RT-03): free; nothing else to undo.
 // - MATCHED (RT-06): free; the seats in the pool are freed and an empty pool ends (FR-POOL-06, -07).
-// - DRIVER_ARRIVED (RT-09): the same, plus the cancellation fee (FR-FARE-05).
+// - DRIVER_ARRIVED (RT-09): the same, plus the cancellation fee, charged to TeslaPay (FR-PAY-05).
 // - STARTED or finished: refused.
 import type { RideDetail, RideStatus } from '@dhakapool/shared';
 import { type Tx, withTransaction } from '../../db/transaction.ts';
 import { cancellationPolicy } from '../../domain/cancellation.ts';
 import { ConflictError, NotFoundError } from '../../domain/errors.ts';
 import { recordTransition } from '../audit/audit.service.ts';
-import { recordCancellationFee } from '../fares/fare-lock.service.ts';
 import { leavePoolBeforeStart, lockPoolOfRide } from '../pools/leave-pool.service.ts';
+import { chargeCancellationFee } from '../wallet/settlement.service.ts';
 import { expireOverdueRidesOf } from './ride-expiry.service.ts';
-import { findPassengerRideStatus, markRideCancelled } from './rides.repository.ts';
+import { findRideToCancel, markRideCancelled, type RideToCancel } from './rides.repository.ts';
 import { getRideForPassenger } from './rides.service.ts';
 
 const PASSENGER_CANCELLED = 'PASSENGER_CANCELLED';
@@ -51,40 +51,41 @@ async function cancelFrom(cancellation: Cancellation, fromStatus: RideStatus): P
   return true;
 }
 
-// RT-06, RT-09: lock the pool first (lock order pool → ride), cancel the ride, charge the fee if
-// the driver had already arrived, then free the seats.
-async function cancelRideInPool(
-  cancellation: Cancellation,
-  fromStatus: RideStatus,
-): Promise<boolean> {
-  const membership = await lockPoolOfRide(cancellation.tx, cancellation.rideId);
-  if (!membership || !(await cancelFrom(cancellation, fromStatus))) {
+// RT-06, RT-09: lock the pool first (lock order pool → ride → wallet), cancel the ride, charge the
+// fee if the driver had already arrived, then free the seats.
+async function cancelRideInPool(cancellation: Cancellation, ride: RideToCancel): Promise<boolean> {
+  const { tx, passengerId, rideId } = cancellation;
+  const membership = await lockPoolOfRide(tx, rideId);
+  if (!membership || !(await cancelFrom(cancellation, ride.status))) {
     return false;
   }
-  if (cancellationPolicy(fromStatus) === 'FEE') {
-    await recordCancellationFee(cancellation.tx, {
-      id: cancellation.rideId,
+  if (cancellationPolicy(ride.status) === 'FEE') {
+    const cancelledRide = {
+      id: rideId,
+      passengerId,
+      paymentMethod: ride.paymentMethod,
       seats: membership.seats,
-    });
+    };
+    await chargeCancellationFee(tx, cancelledRide, { role: 'PASSENGER', userId: passengerId });
   }
-  await leavePoolBeforeStart(cancellation.tx, membership);
+  await leavePoolBeforeStart(tx, membership);
   return true;
 }
 
 // Returns false when the ride changed between reading its status and writing the new one.
 async function tryToCancel(cancellation: Cancellation): Promise<boolean> {
   const { tx, passengerId, rideId } = cancellation;
-  const status = await findPassengerRideStatus(tx, passengerId, rideId);
-  if (!status) {
+  const ride = await findRideToCancel(tx, passengerId, rideId);
+  if (!ride) {
     throw new NotFoundError('Ride not found.');
   }
-  if (cancellationPolicy(status) === 'FORBIDDEN') {
-    throw cannotCancel(status, forbiddenMessage(status));
+  if (cancellationPolicy(ride.status) === 'FORBIDDEN') {
+    throw cannotCancel(ride.status, forbiddenMessage(ride.status));
   }
-  if (status === 'REQUESTED') {
+  if (ride.status === 'REQUESTED') {
     return cancelFrom(cancellation, 'REQUESTED');
   }
-  return cancelRideInPool(cancellation, status); // MATCHED or DRIVER_ARRIVED
+  return cancelRideInPool(cancellation, ride); // MATCHED or DRIVER_ARRIVED
 }
 
 export async function cancelRideByPassenger(

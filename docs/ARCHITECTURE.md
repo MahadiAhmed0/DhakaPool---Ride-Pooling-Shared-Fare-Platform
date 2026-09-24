@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.8 (Draft for review) |
+| Version | 0.9 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.3](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -18,6 +18,7 @@
 | 0.6 | 2026-09-24 | Synced with the rides and audit modules: transition tables in the shared package, service function names, passenger expiry in its own transaction before each command, `command.rejected` WARN log |
 | 0.7 | 2026-09-24 | Synced with the drivers and pools modules: `GET /api/driver/availability`, matching signature and reasons as built, file-level service names, passenger cancel in MATCHED (pool lock, one re-read) |
 | 0.8 | 2026-09-24 | Synced with the trip lifecycle: driver commands lock driver → pool after an ownership check, §6.4 and §6.5 as built, new §6.6 (driver cancels the trip, no-show), pool service names |
+| 0.9 | 2026-09-24 | Synced with the wallet module: settlement service, cash collection on the pools routes, PAYMENT audit entity, cash fall-back and unpaid fees, unreachable-database codes mapped to 503 |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -135,7 +136,7 @@ flowchart LR
 | `rides` | `POST /api/rides`, `GET /api/rides`, `GET /api/rides/:id`, `POST /api/rides/:id/cancel` | `createRide`, `listRidesForPassenger`, `getRideForPassenger` (`rides.service.ts`); `cancelRideByPassenger` (`ride-cancellation.service.ts`); `expireOverdueRides(tx, passengerId?)` (`ride-expiry.service.ts`); `toRideView` (`ride-view.ts`) |
 | `drivers` | `GET` · `PUT /api/driver/availability`, `GET /api/driver/requests`, `POST /api/driver/requests/:id/accept`, `GET /api/driver/pools` | `getDriverStatus`, `setAvailability`, `loadDriver`, `assertOnline` (`drivers.service.ts`); `listRelevantRequests` (`request-feed.service.ts`); accept delegates to `pools` |
 | `pools` | `POST /api/pools/:id/arrive`, `/start`, `/cancel`, `POST /api/pools/:id/members/:rideId/complete`, `/no-show`, `/cash-collected` | `acceptRequest` (`accept-request.service.ts`); `markArrived`, `startTrip` (locks fares) (`trip.service.ts`); `dropOff` (`drop-off.service.ts`); `cancelTrip`, `markNoShow` (`cancel-trip.service.ts`); `lockPoolOfRide`, `leavePoolBeforeStart` (`leave-pool.service.ts`); `lockOwnPool` (`own-pool.ts`), `movePool` (`pool-moves.ts`); `lockActivePool`, `getPoolView`, `listDriverPools` (`pools.service.ts`); later `markCashCollected` |
-| `wallet` | `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/topup` | `getBalancePaisa(tx, …)`, `getWallet`, `topUp`, `debitForRide(tx, …)`, `chargeCancellationFee(tx, …)` |
+| `wallet` | `GET /api/wallet`, `GET /api/wallet/transactions`, `POST /api/wallet/topup` | `getWallet`, `getStatement`, `topUp`, `getBalancePaisa(tx, …)`, `debitForRide(tx, …)` (guarded debit, returns null when short) (`wallet.service.ts`); `settleRideFare(tx, …)`, `collectCash(tx, …)`, `chargeCancellationFee(tx, …)` (`settlement.service.ts`). `POST /api/pools/:id/members/:rideId/cash-collected` is a driver route in `pools` that calls `collectCash`. |
 | `audit` | *(internal)* | `recordTransition(tx, { entityType, entityId, fromStatus, toStatus, actor, reason })`, `recordTransitions(tx, [...])`, `listTimeline(entityType, entityId)` |
 | `health` | `GET /health` | DB `SELECT 1` → `{ status, db }` |
 
@@ -271,13 +272,14 @@ sequenceDiagram
     rect rgb(235, 245, 255)
     A->>DB: lock driver → pool → ride → Nusrat's wallet · free her seat, record drop-off order
     A->>DB: UPDATE wallets SET balance = balance − 6600 WHERE id = W AND balance ≥ 6600
-    A->>DB: INSERT wallet_transactions (RIDE_PAYMENT −6600) · INSERT payments (PAID)
+    A->>DB: INSERT wallet_transactions (RIDE_PAYMENT −6600) · INSERT payments (PAID) · audit PAYMENT
+    note right of DB: 0 rows updated means the balance is short: no debit, payment CASH · PENDING_CASH (A-14)
     A->>DB: ride STARTED → COMPLETED · audit
     end
     J->>A: POST /pools/{P}/members/{rafiqRide}/complete
     A->>DB: payment PENDING_CASH 6000 · ride COMPLETED · last member, so pool → COMPLETED, Jashim's zone = GL1
     J->>A: POST /pools/{P}/members/{rafiqRide}/cash-collected
-    A->>DB: payment PAID (collected_by Jashim) · audit
+    A->>DB: lock driver → pool · CAS payment PENDING_CASH → PAID (collected_by Jashim) · audit PAYMENT
 ```
 
 ### 6.5 Passenger cancels while matched (lock order preserved)
@@ -367,7 +369,7 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
   - `AppError` → its own status and code
   - `ZodError` → 400
   - Prisma known errors → by constraint name (see §7.2)
-  - `P1001` or connection errors → 503 `SERVICE_UNAVAILABLE`
+  - an unreachable database (`P1001`, `P1002`, `P1017`), a closed transaction (`P2028`) or a failed client start → 503 `SERVICE_UNAVAILABLE`, which the client may retry (NFR-REL-03, TC-42)
   - anything else → 500 `INTERNAL_ERROR`
 
 ### 9.2 Logs
