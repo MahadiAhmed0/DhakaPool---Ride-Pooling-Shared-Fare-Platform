@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.12 (Draft for review) |
+| Version | 0.13 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.4](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -21,6 +21,7 @@
 | 0.9 | 2026-09-24 | Synced with the wallet module: settlement service, cash collection on the pools routes, PAYMENT audit entity, cash fall-back and unpaid fees, unreachable-database codes mapped to 503 |
 | 0.10 | 2026-09-24 | Neo-brutalist visual style (ADR-0013) in §10; implements SRS v0.4 |
 | 0.11 | 2026-09-25 | Synced with the passenger UI: session guard in `lib/server-session.ts`, per-screen query hooks, cursor-paged lists, polling as built, taka-to-paisa top-up input, web layout in §11 |
+| 0.13 | 2026-09-25 | Hosting as configured: Render instead of Railway (free plan cannot run a service), Supabase session pooler, `render.yaml` and `apps/web/vercel.json`, `TRUST_PROXY_HOPS`, migrations over `DIRECT_URL` |
 | 0.12 | 2026-09-25 | Synced with the driver UI: driver query hooks and 4 s refresh of the feed and the active pool, buttons from the shared transition tables via `lib/driver-moves.ts`, one command hook per trip button, Cash collected also in the trip history |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
@@ -480,18 +481,16 @@ flowchart LR
 ```mermaid
 flowchart LR
     U["Browser"] -- HTTPS --> V["Vercel<br/>Next.js web<br/>rewrites /api/* →"]
-    V -- HTTPS --> R["Railway<br/>api container (same Dockerfile)"]
-    R -- "pooled connection (app)" --> S[("Supabase Postgres")]
-    R -. "direct connection (migrations)" .-> S
+    V -- HTTPS --> R["Render free web service<br/>api container (same Dockerfile)"]
+    R -- "session pooler (app, DATABASE_URL)" --> S[("Supabase Postgres")]
+    R -. "session pooler (migrations, DIRECT_URL)" .-> S
 ```
 
-**Caveats to verify at deploy time (they are recorded in ADR-0009):**
-- **Railway:** its free offering has changed over time (trial credit versus a paid Hobby plan). The PRD forbids paying, so if no free option exists, the API goes to Render's free web service and the cold start is documented.
-- **Supabase:**
-  - The free project pauses after about a week of inactivity, so it has to be woken before the demo.
-  - Prisma uses the pooler URL (`DATABASE_URL`, `?pgbouncer=true`) for the app and the direct URL (`DIRECT_URL`) for `migrate deploy`.
-  - Interactive transactions and `FOR UPDATE` still work, because a transaction holds its pooled connection.
-- **Vercel:** `API_INTERNAL_URL` must be set at build time, because rewrites are compiled into the build.
+**As configured (checked against the providers' published free tiers on 2026-09-25):**
+- **Render instead of Railway.** Railway's free plan gives $1 of credit a month, which cannot keep a 0.5 GB service running, and the PRD forbids paying. The API therefore uses ADR-0009's fallback: Render's free web service with the same Dockerfile (`render.yaml`). It sleeps after 15 idle minutes and takes about a minute to wake, so the demo starts by opening `/health`.
+- **Supabase session pooler for both URLs.** Render has no IPv6, and Supabase's direct connection is IPv6-only on the free plan, so both `DATABASE_URL` (app) and `DIRECT_URL` (migrations) use the IPv4 session pooler. Session mode keeps one server connection per client connection, so interactive transactions, `SET LOCAL lock_timeout` and `FOR UPDATE` behave exactly as locally. The free project pauses after a week of inactivity.
+- **Proxy hops.** Requests pass through Vercel's rewrite and Render's load balancer, so the API runs with `TRUST_PROXY_HOPS=2` (§8).
+- **Vercel:** Root Directory `apps/web`; `apps/web/vercel.json` installs and builds from the repository root so the shared package is built first. `API_INTERNAL_URL` must be set before the build, because rewrites are compiled into it.
 
 ### 12.3 Configuration (`.env.example`)
 

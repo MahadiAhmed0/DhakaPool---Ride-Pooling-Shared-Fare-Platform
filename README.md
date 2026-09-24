@@ -240,6 +240,7 @@ All variables are listed with safe defaults in [`.env.example`](.env.example). R
 | `TEST_DATABASE_URL` | `…/dhakapool_test` | Tests only; never the development database |
 | `API_PORT` · `WEB_ORIGIN` · `LOG_LEVEL` | `4000` · `http://localhost:3000` · `info` | API |
 | `SESSION_TTL_HOURS` · `COOKIE_SECURE` · `BCRYPT_COST` | `168` · `false` · `12` | Sessions and password hashing; set `COOKIE_SECURE=true` behind HTTPS |
+| `TRUST_PROXY_HOPS` | `1` | Proxies in front of the API, for per-client rate limits; `2` when hosted behind Vercel and Render |
 | `SEED_DEMO_PASSWORD` | `"TeslaPool#2026"` | Password of every seeded persona. Keep the quotes: without them Node reads `#` as a comment |
 | `API_INTERNAL_URL` | `http://localhost:4000` | Where the web app forwards `/api/*` (fixed at build time) |
 | `FARE_BASE_PAISA` · `FARE_PER_KM_PAISA` · `FARE_POOL_DISCOUNT_BPS` | `3000` · `1500` · `2000` | Fare rates: ৳30 base, ৳15/km, 20 % pool discount on the distance charge |
@@ -378,4 +379,27 @@ Real routing and ETAs with detour-based matching; live GPS; push updates; automa
 
 ## Deployment
 
-Docker Compose is the supported way to run the full stack today (above). Free-tier hosting is described in [ADR-0009](docs/adr/0009-docker-first-deployment.md) and [ARCHITECTURE §12](docs/ARCHITECTURE.md#12-deployment).
+Docker Compose runs the full stack anywhere (see [Quick start](#quick-start-docker)). The hosted demo uses three free tiers, with no payment method required ([ADR-0009](docs/adr/0009-docker-first-deployment.md), [ARCHITECTURE §12.2](docs/ARCHITECTURE.md#122-later-free-tier-hosting-nfr-por-04-adr-0009)):
+
+| Part | Host | Configuration |
+|---|---|---|
+| Web app | Vercel (Hobby) | [`apps/web/vercel.json`](apps/web/vercel.json) |
+| API | Render (free web service, same Dockerfile) | [`render.yaml`](render.yaml) |
+| Database | Supabase (free) | connection strings below |
+
+Railway was the first choice in ADR-0009, but its free plan ($1 of credit a month) cannot keep a service running, so the API uses the documented fallback, Render.
+
+**1. Database — Supabase.** Create a project in the *Southeast Asia (Singapore)* region and note the database password. Under **Connect**, copy the **Session pooler** connection string (IPv4; Render has no IPv6, so the direct connection cannot be used). From it make two values:
+
+```text
+DATABASE_URL = postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres?sslmode=no-verify
+DIRECT_URL   = postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres?sslmode=require
+```
+
+The app connects through node-postgres, which reads `sslmode=require` as "verify the certificate" and would reject Supabase's; `no-verify` keeps the connection encrypted. Migrations run through Prisma, which accepts `sslmode=require`.
+
+**2. API — Render.** *New → Blueprint*, connect this repository and choose the branch to deploy (`release/v1.0.0` for the release). Render reads `render.yaml` and asks for the secret values: `DATABASE_URL`, `DIRECT_URL`, `SEED_DEMO_PASSWORD` (`TeslaPool#2026`, no quotes in the dashboard) and `WEB_ORIGIN` (the Vercel address from step 3; enter a placeholder first and update it afterwards). On start the container migrates and seeds the database. Check `https://<api-name>.onrender.com/health`.
+
+**3. Web — Vercel.** *Add New → Project*, import this repository, and set **Root Directory** to `apps/web`. Add the environment variable `API_INTERNAL_URL = https://<api-name>.onrender.com` for all environments before the first build, because the `/api` rewrite is fixed at build time. Deploy, then put the Vercel address into `WEB_ORIGIN` on Render and redeploy the API.
+
+**Before a demo.** Free services sleep: open the API's `/health` first and wait for `{"status":"ok","db":"up"}` (Render needs about a minute to wake after 15 idle minutes). A Supabase project pauses after a week without activity and is resumed from its dashboard.
