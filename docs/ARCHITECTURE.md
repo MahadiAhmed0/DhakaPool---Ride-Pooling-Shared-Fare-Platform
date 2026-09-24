@@ -3,9 +3,9 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.9 (Draft for review) |
+| Version | 0.10 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
-| Implements | [SRS DTP-SRS-001 v0.3](SRS.md) |
+| Implements | [SRS DTP-SRS-001 v0.4](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
 
 | Version | Date | Change |
@@ -19,6 +19,7 @@
 | 0.7 | 2026-09-24 | Synced with the drivers and pools modules: `GET /api/driver/availability`, matching signature and reasons as built, file-level service names, passenger cancel in MATCHED (pool lock, one re-read) |
 | 0.8 | 2026-09-24 | Synced with the trip lifecycle: driver commands lock driver → pool after an ownership check, §6.4 and §6.5 as built, new §6.6 (driver cancels the trip, no-show), pool service names |
 | 0.9 | 2026-09-24 | Synced with the wallet module: settlement service, cash collection on the pools routes, PAYMENT audit entity, cash fall-back and unpaid fees, unreachable-database codes mapped to 503 |
+| 0.10 | 2026-09-24 | Neo-brutalist visual style (ADR-0013) in §10; implements SRS v0.4 |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -397,6 +398,7 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 | Domain widgets | `StatusStepper`, `FareBreakdown`, `SeatMeter` (2/3), `ConfirmDialog` (states any fee), `MoneyText` (paisa → "৳66.00") |
 | Validation | The same Zod schemas as the API, from `packages/shared`, via `react-hook-form` + `zodResolver` |
 | Styling | Tailwind CSS, mobile-first, down to 360 px (NFR-USA-05). No component library, to keep the bundle and the explanation small. |
+| Visual style | Neo-brutalism ([ADR-0013](adr/0013-neo-brutalist-ui-style.md)): 3 px black borders, hard `4px 4px 0 #000` shadows, flat accents (yellow actions, pink fees, cyan info, lime success, red errors) with black text, Archivo Black headings and Space Grotesk body text. Tokens live in `app/globals.css`; pages use only the `components/ui` kit, so the look changes in one place. |
 | Action visibility | Buttons are derived from the status with the same transition table exported by `packages/shared` (NFR-USA-03). The server stays authoritative. |
 
 ## 11. Repository layout (npm workspaces monorepo, ADR-0008)
