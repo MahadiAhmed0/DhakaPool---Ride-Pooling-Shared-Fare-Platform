@@ -1,5 +1,5 @@
-// Small helpers that insert rides and pools straight into the database, for testing the schema rules.
-// Feature tests create these through the API instead.
+// Small helpers that insert rides and pools straight into the database. They set up states the API
+// cannot reach yet in a test, or would need many steps to reach (for example a started trip).
 import { prisma } from '../../src/db/client.ts';
 import type { Prisma } from '../../src/generated/prisma/client.ts';
 
@@ -35,4 +35,16 @@ export async function insertPool(
     data: { driverId, vehicleId, pickupZoneCode: 'BAN', capacity: 3, ...overrides },
   });
   return pool.id;
+}
+
+// Puts a ride into a pool as an active member.
+export async function insertPoolMember(
+  poolId: string,
+  rideRequestId: string,
+  seats = 1,
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.poolMember.create({ data: { poolId, rideRequestId, seats } }),
+    prisma.pool.update({ where: { id: poolId }, data: { occupiedSeats: { increment: seats } } }),
+  ]);
 }
