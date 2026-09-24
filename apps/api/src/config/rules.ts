@@ -1,5 +1,6 @@
 // Business rule values in one place (docs/CODING_CONVENTIONS.md §6).
 // Tunable values come from environment variables; the defaults are the SRS values.
+import type { FareRates } from '@dhakapool/shared';
 import { z } from 'zod';
 
 const whole = z.coerce.number().int().nonnegative();
@@ -24,10 +25,17 @@ export const REQUEST_EXPIRY_MINUTES = tunableRules.REQUEST_EXPIRY_MINUTES;
 export const POOL_JOIN_WINDOW_MINUTES = tunableRules.POOL_JOIN_WINDOW_MINUTES;
 export const NO_SHOW_WAIT_MINUTES = tunableRules.NO_SHOW_WAIT_MINUTES;
 
+// BR-11: the rates every new fare is worked out with. A locked fare keeps its own copy (FR-FARE-03).
+export const CURRENT_FARE_RATES: FareRates = {
+  basePaisa: BASE_FARE_PAISA,
+  perKmPaisa: PER_KM_PAISA,
+  poolDiscountBps: POOL_DISCOUNT_BPS,
+};
+
 // Fixed rules (not tunable in the MVP).
 export const TOP_UP_MIN_PAISA = 5_000; // BR-17: ৳50 minimum top-up
 export const TOP_UP_MAX_PAISA = 500_000; // BR-17: ৳5,000 maximum top-up
-export const MAX_SEATS_PER_REQUEST = 6; // FR-PAX-03 / ERD: seats 1–6, never above vehicle capacity
-export const BASIS_POINTS_PER_WHOLE = 10_000; // 10,000 bps = 100 %
-export const METRES_PER_KM = 1_000;
 export const AUTH_ATTEMPTS_PER_MINUTE = 10; // NFR-SEC-07: sign-up and sign-in attempts per IP
+
+// FR-PAX-03: 1–6 seats per request. Defined in the shared package because the web form checks it too.
+export { MAX_SEATS_PER_REQUEST } from '@dhakapool/shared';

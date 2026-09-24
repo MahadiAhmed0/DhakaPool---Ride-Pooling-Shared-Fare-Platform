@@ -83,6 +83,9 @@ describe('signing up as a passenger', () => {
       .send({ ...newPassenger, role: 'DRIVER' });
 
     expect(response.status).toBe(400);
+    expect(response.body.error.details.fields).toEqual([
+      { path: 'role', message: 'The field "role" is not expected here.' },
+    ]);
     expect(await prisma.user.count({ where: { email: newPassenger.email } })).toBe(0);
   });
 });

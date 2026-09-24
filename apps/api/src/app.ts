@@ -13,7 +13,9 @@ import { createAuthRateLimiter } from './middleware/rate-limit.ts';
 import { requestId } from './middleware/request-id.ts';
 import { loadSession } from './middleware/session.ts';
 import { createAuthRouter } from './modules/auth/auth.routes.ts';
+import { faresRouter } from './modules/fares/fares.routes.ts';
 import { healthRouter } from './modules/health/health.routes.ts';
+import { zonesRouter } from './modules/zones/zones.routes.ts';
 
 // Largest JSON body the API accepts (ARCHITECTURE §8). Every request body is small.
 const JSON_BODY_LIMIT = '100kb';
@@ -42,6 +44,8 @@ export function createApp(options: AppOptions = {}): Express {
   app.use('/api/health', healthRouter);
   const authAttempts = options.authAttemptsPerMinute ?? AUTH_ATTEMPTS_PER_MINUTE;
   app.use('/api/auth', createAuthRouter(createAuthRateLimiter(authAttempts)));
+  app.use('/api/zones', zonesRouter);
+  app.use('/api/fares', faresRouter);
 
   app.use(notFound);
   app.use(errorHandler);
