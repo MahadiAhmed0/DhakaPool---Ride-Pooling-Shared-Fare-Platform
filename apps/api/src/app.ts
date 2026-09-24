@@ -9,6 +9,7 @@ import { errorHandler } from './middleware/error-handler.ts';
 import { httpLogger } from './middleware/http-logger.ts';
 import { notFound } from './middleware/not-found.ts';
 import { requestId } from './middleware/request-id.ts';
+import { loadSession } from './middleware/session.ts';
 import { authRouter } from './modules/auth/auth.routes.ts';
 import { healthRouter } from './modules/health/health.routes.ts';
 
@@ -25,6 +26,7 @@ export function createApp(): Express {
   app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(cookieParser());
+  app.use(loadSession);
 
   app.use('/health', healthRouter);
   app.use('/api/health', healthRouter);

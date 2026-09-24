@@ -45,3 +45,31 @@ export async function createSession(
 ): Promise<void> {
   await prisma.session.create({ data: { tokenHash, userId, expiresAt } });
 }
+
+export type ActiveSession = {
+  id: string;
+  lastSeenAt: Date;
+  user: { id: string; role: 'PASSENGER' | 'DRIVER' };
+};
+
+// A session counts only while it is neither expired nor revoked (FR-AUTH-03).
+export async function findActiveSession(
+  tokenHash: string,
+  now: Date,
+): Promise<ActiveSession | null> {
+  return prisma.session.findFirst({
+    where: { tokenHash, revokedAt: null, expiresAt: { gt: now } },
+    select: { id: true, lastSeenAt: true, user: { select: { id: true, role: true } } },
+  });
+}
+
+export async function markSessionSeen(sessionId: string, now: Date): Promise<void> {
+  await prisma.session.update({ where: { id: sessionId }, data: { lastSeenAt: now } });
+}
+
+export async function revokeSession(tokenHash: string, now: Date): Promise<void> {
+  await prisma.session.updateMany({
+    where: { tokenHash, revokedAt: null },
+    data: { revokedAt: now },
+  });
+}

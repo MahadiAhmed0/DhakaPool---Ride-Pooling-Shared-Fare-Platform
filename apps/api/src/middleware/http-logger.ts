@@ -26,6 +26,8 @@ export const httpLogger = pinoHttp({
   // The request id is set by the request-id middleware, which runs first.
   genReqId: (req) => req.id ?? 'unknown',
   customLogLevel: chooseLogLevel,
+  // Which user made the request (set by the session middleware; absent when signed out).
+  customProps: (req) => ({ userId: (req as { user?: { id: string } }).user?.id }),
   autoLogging: { ignore: (req) => QUIET_PATHS.has(req.url ?? '') },
   serializers: {
     req: (req: { id: string; method: string; url: string }) => ({

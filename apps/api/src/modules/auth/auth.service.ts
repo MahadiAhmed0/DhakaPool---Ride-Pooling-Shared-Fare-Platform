@@ -4,15 +4,21 @@ import bcrypt from 'bcryptjs';
 import { env } from '../../config/env.ts';
 import { withTransaction } from '../../db/transaction.ts';
 import { NotFoundError, UnauthenticatedError } from '../../domain/errors.ts';
+import type { AuthenticatedUser } from '../../types/express.d.ts';
 import {
   createPassengerWithWallet,
   createSession,
+  findActiveSession,
   findUserForLogIn,
   findUserProfile,
+  markSessionSeen,
+  revokeSession,
 } from './auth.repository.ts';
 import { createSessionToken, hashSessionToken } from './session-token.ts';
 
 const MS_PER_HOUR = 60 * 60 * 1000;
+// last_seen_at is refreshed at most this often, so reading a page does not write to the database each time.
+const SESSION_SEEN_INTERVAL_MS = 5 * 60 * 1000;
 
 // FR-AUTH-02: one message for "no such account" and "wrong password", so nobody can find out
 // which e-mail addresses have accounts.
@@ -71,4 +77,22 @@ export async function logIn(input: LogInInput): Promise<SignedIn> {
     throw new UnauthenticatedError(WRONG_CREDENTIALS);
   }
   return startSession(user.id);
+}
+
+// Finds who is signed in from the cookie token; returns null for a missing, expired or revoked session.
+export async function findSignedInUser(sessionToken: string): Promise<AuthenticatedUser | null> {
+  const now = new Date();
+  const session = await findActiveSession(hashSessionToken(sessionToken), now);
+  if (!session) {
+    return null;
+  }
+  if (now.getTime() - session.lastSeenAt.getTime() > SESSION_SEEN_INTERVAL_MS) {
+    await markSessionSeen(session.id, now);
+  }
+  return { id: session.user.id, role: session.user.role, sessionId: session.id };
+}
+
+// FR-AUTH-03: signing out revokes the session in the database, so the old cookie stops working.
+export async function logOut(sessionToken: string): Promise<void> {
+  await revokeSession(hashSessionToken(sessionToken), new Date());
 }
