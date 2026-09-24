@@ -1,13 +1,400 @@
-// Prisma schema for the Dhaka Tesla Pool database (ERD.md).
-// The tables are added in the database-schema step; this file only configures the client for now.
+// Prisma schema for the Dhaka Tesla Pool database — see docs/ERD.md for every table and why it exists.
+//
+// IMPORTANT: some integrity rules cannot be written in this file (CHECK constraints, partial unique
+// indexes, append-only triggers). They live in the hand-written migration
+// prisma/migrations/*_integrity_constraints/migration.sql (ERD §4.2, ADR-0004).
 
 generator client {
-  provider             = "prisma-client"
-  output               = "../src/generated/prisma"
-  moduleFormat         = "esm"
-  importFileExtension  = "ts"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// ---------------------------------------------------------------- enums (ERD §2)
+
+enum UserRole {
+  PASSENGER
+  DRIVER
+
+  @@map("user_role")
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  PREFER_NOT_TO_SAY
+
+  @@map("gender")
+}
+
+enum GenderRestriction {
+  NONE
+  FEMALE_ONLY
+  MALE_ONLY
+
+  @@map("gender_restriction")
+}
+
+enum DriverAvailability {
+  ONLINE
+  OFFLINE
+
+  @@map("driver_availability")
+}
+
+enum RideStatus {
+  REQUESTED
+  MATCHED
+  DRIVER_ARRIVED
+  STARTED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+
+  @@map("ride_status")
+}
+
+enum PoolStatus {
+  OPEN
+  DRIVER_ARRIVED
+  STARTED
+  COMPLETED
+  CANCELLED
+
+  @@map("pool_status")
+}
+
+enum PaymentMethod {
+  CASH
+  TESLAPAY
+
+  @@map("payment_method")
+}
+
+enum PaymentStatus {
+  PENDING_CASH
+  PAID
+  UNPAID
+
+  @@map("payment_status")
+}
+
+enum ChargeType {
+  RIDE
+  CANCELLATION_FEE
+
+  @@map("charge_type")
+}
+
+enum WalletTxnType {
+  TOPUP
+  RIDE_PAYMENT
+  CANCELLATION_FEE
+
+  @@map("wallet_txn_type")
+}
+
+enum AuditEntity {
+  RIDE_REQUEST
+  POOL
+  DRIVER
+
+  @@map("audit_entity")
+}
+
+enum ActorRole {
+  PASSENGER
+  DRIVER
+  SYSTEM
+
+  @@map("actor_role")
+}
+
+// ---------------------------------------------------------------- people and sessions
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName     String   @map("full_name") @db.VarChar(100)
+  email        String   @unique @db.VarChar(254) // stored lower-case
+  phone        String   @unique @db.VarChar(20)
+  passwordHash String   @map("password_hash") @db.VarChar(100)
+  role         UserRole
+  gender       Gender   @default(PREFER_NOT_TO_SAY) // used only for matching (A-19, A-20)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions          Session[]
+  driverProfile     DriverProfile?
+  wallet            Wallet?
+  rideRequests      RideRequest[]
+  auditEntries      StatusHistory[]
+  collectedPayments Payment[]       @relation("CollectedBy")
+
+  @@map("users")
+}
+
+model Session {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.Char(64) // SHA-256 of the cookie token (ADR-0005)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ---------------------------------------------------------------- drivers and Teslas
+
+model DriverProfile {
+  userId          String             @id @map("user_id") @db.Uuid
+  availability    DriverAvailability @default(OFFLINE)
+  currentZoneCode String?            @map("current_zone_code") @db.VarChar(3)
+  updatedAt       DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  currentZone Zone?    @relation(fields: [currentZoneCode], references: [code], onDelete: Restrict)
+  vehicle     Vehicle?
+  pools       Pool[]
+
+  @@map("driver_profiles")
+}
+
+model Vehicle {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  driverId  String   @unique @map("driver_id") @db.Uuid // one Tesla per driver (A-03)
+  name      String   @db.VarChar(50)
+  plate     String   @unique @db.VarChar(20)
+  capacity  Int      @db.SmallInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  driver DriverProfile @relation(fields: [driverId], references: [userId], onDelete: Restrict)
+  pools  Pool[]
+
+  @@map("vehicles")
+}
+
+// ---------------------------------------------------------------- geography (reference data)
+
+model Zone {
+  code String  @id @db.VarChar(3)
+  name String  @db.VarChar(50)
+  lat  Decimal @db.Decimal(9, 6)
+  lng  Decimal @db.Decimal(9, 6)
+
+  distancesFrom       ZoneDistance[]  @relation("DistanceFrom")
+  distancesTo         ZoneDistance[]  @relation("DistanceTo")
+  adjacentFrom        ZoneAdjacency[] @relation("AdjacencyFrom")
+  adjacentTo          ZoneAdjacency[] @relation("AdjacencyTo")
+  pickupRequests      RideRequest[]   @relation("Pickup")
+  destinationRequests RideRequest[]   @relation("Destination")
+  pools               Pool[]
+  drivers             DriverProfile[]
+
+  @@map("zones")
+}
+
+model ZoneDistance {
+  fromZoneCode String @map("from_zone_code") @db.VarChar(3)
+  toZoneCode   String @map("to_zone_code") @db.VarChar(3)
+  distanceM    Int    @map("distance_m")
+
+  fromZone Zone @relation("DistanceFrom", fields: [fromZoneCode], references: [code], onDelete: Restrict)
+  toZone   Zone @relation("DistanceTo", fields: [toZoneCode], references: [code], onDelete: Restrict)
+
+  @@id([fromZoneCode, toZoneCode])
+  @@map("zone_distances")
+}
+
+model ZoneAdjacency {
+  zoneCode         String @map("zone_code") @db.VarChar(3)
+  adjacentZoneCode String @map("adjacent_zone_code") @db.VarChar(3)
+
+  zone         Zone @relation("AdjacencyFrom", fields: [zoneCode], references: [code], onDelete: Restrict)
+  adjacentZone Zone @relation("AdjacencyTo", fields: [adjacentZoneCode], references: [code], onDelete: Restrict)
+
+  @@id([zoneCode, adjacentZoneCode])
+  @@map("zone_adjacency")
+}
+
+// ---------------------------------------------------------------- rides and pools
+
+model RideRequest {
+  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  passengerId         String        @map("passenger_id") @db.Uuid
+  pickupZoneCode      String        @map("pickup_zone_code") @db.VarChar(3)
+  destinationZoneCode String        @map("destination_zone_code") @db.VarChar(3)
+  seats               Int           @db.SmallInt
+  poolOptIn           Boolean       @default(true) @map("pool_opt_in")
+  sameGenderOnly      Boolean       @default(false) @map("same_gender_only")
+  paymentMethod       PaymentMethod @map("payment_method")
+  status              RideStatus    @default(REQUESTED)
+  estimatedFarePaisa  BigInt        @map("estimated_fare_paisa") // solo estimate (FR-FARE-02)
+  requestedAt         DateTime      @default(now()) @map("requested_at") @db.Timestamptz(3)
+  expiresAt           DateTime      @map("expires_at") @db.Timestamptz(3)
+  cancelReason        String?       @map("cancel_reason") @db.VarChar(40)
+  cancelledAt         DateTime?     @map("cancelled_at") @db.Timestamptz(3)
+  completedAt         DateTime?     @map("completed_at") @db.Timestamptz(3)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  passenger          User                @relation(fields: [passengerId], references: [id], onDelete: Restrict)
+  pickupZone         Zone                @relation("Pickup", fields: [pickupZoneCode], references: [code], onDelete: Restrict)
+  destinationZone    Zone                @relation("Destination", fields: [destinationZoneCode], references: [code], onDelete: Restrict)
+  poolMembers        PoolMember[]
+  fares              Fare[]
+  payments           Payment[]
+  walletTransactions WalletTransaction[]
+
+  @@index([passengerId, createdAt(sort: Desc)])
+  @@map("ride_requests")
+}
+
+model Pool {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  driverId          String            @map("driver_id") @db.Uuid
+  vehicleId         String            @map("vehicle_id") @db.Uuid
+  pickupZoneCode    String            @map("pickup_zone_code") @db.VarChar(3)
+  status            PoolStatus        @default(OPEN)
+  capacity          Int               @db.SmallInt // copied from the vehicle (ERD §8)
+  occupiedSeats     Int               @default(0) @map("occupied_seats") @db.SmallInt
+  isPrivate         Boolean           @default(false) @map("is_private")
+  genderRestriction GenderRestriction @default(NONE) @map("gender_restriction")
+  cancelReason      String?           @map("cancel_reason") @db.VarChar(40)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  arrivedAt         DateTime?         @map("arrived_at") @db.Timestamptz(3)
+  startedAt         DateTime?         @map("started_at") @db.Timestamptz(3)
+  completedAt       DateTime?         @map("completed_at") @db.Timestamptz(3)
+  cancelledAt       DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  driver     DriverProfile @relation(fields: [driverId], references: [userId], onDelete: Restrict)
+  vehicle    Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  pickupZone Zone          @relation(fields: [pickupZoneCode], references: [code], onDelete: Restrict)
+  members    PoolMember[]
+
+  @@index([driverId, createdAt(sort: Desc)])
+  @@map("pools")
+}
+
+model PoolMember {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  poolId        String    @map("pool_id") @db.Uuid
+  rideRequestId String    @map("ride_request_id") @db.Uuid
+  seats         Int       @db.SmallInt
+  joinedAt      DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
+  leftAt        DateTime? @map("left_at") @db.Timestamptz(3) // set only if removed before the trip starts
+  dropoffOrder  Int?      @map("dropoff_order") @db.SmallInt
+  droppedOffAt  DateTime? @map("dropped_off_at") @db.Timestamptz(3)
+
+  pool        Pool        @relation(fields: [poolId], references: [id], onDelete: Restrict)
+  rideRequest RideRequest @relation(fields: [rideRequestId], references: [id], onDelete: Restrict)
+
+  @@unique([poolId, rideRequestId])
+  @@index([rideRequestId])
+  @@map("pool_members")
+}
+
+// ---------------------------------------------------------------- money (always integer paisa)
+
+model Fare {
+  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rideRequestId       String     @map("ride_request_id") @db.Uuid
+  type                ChargeType
+  basePaisa           Int        @map("base_paisa")
+  distanceM           Int        @map("distance_m")
+  perKmPaisa          Int        @map("per_km_paisa")
+  distanceChargePaisa BigInt     @map("distance_charge_paisa")
+  discountBps         Int        @map("discount_bps")
+  discountPaisa       BigInt     @map("discount_paisa")
+  seats               Int        @db.SmallInt
+  pooled              Boolean
+  totalPaisa          BigInt     @map("total_paisa")
+  lockedAt            DateTime   @default(now()) @map("locked_at") @db.Timestamptz(3)
+
+  rideRequest RideRequest @relation(fields: [rideRequestId], references: [id], onDelete: Restrict)
+  payment     Payment?
+
+  @@unique([rideRequestId, type])
+  @@map("fares")
+}
+
+model Payment {
+  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fareId              String        @unique @map("fare_id") @db.Uuid
+  rideRequestId       String        @map("ride_request_id") @db.Uuid
+  method              PaymentMethod
+  status              PaymentStatus
+  amountPaisa         BigInt        @map("amount_paisa")
+  walletTransactionId String?       @unique @map("wallet_transaction_id") @db.Uuid
+  collectedById       String?       @map("collected_by_id") @db.Uuid
+  paidAt              DateTime?     @map("paid_at") @db.Timestamptz(3)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  fare              Fare               @relation(fields: [fareId], references: [id], onDelete: Restrict)
+  rideRequest       RideRequest        @relation(fields: [rideRequestId], references: [id], onDelete: Restrict)
+  walletTransaction WalletTransaction? @relation(fields: [walletTransactionId], references: [id], onDelete: Restrict)
+  collectedBy       User?              @relation("CollectedBy", fields: [collectedById], references: [id], onDelete: Restrict)
+
+  @@index([rideRequestId])
+  @@map("payments")
+}
+
+model Wallet {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  passengerId  String   @unique @map("passenger_id") @db.Uuid
+  balancePaisa BigInt   @default(0) @map("balance_paisa")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  passenger    User                @relation(fields: [passengerId], references: [id], onDelete: Restrict)
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  walletId          String        @map("wallet_id") @db.Uuid
+  type              WalletTxnType
+  amountPaisa       BigInt        @map("amount_paisa") // signed: + credit, − debit
+  balanceAfterPaisa BigInt        @map("balance_after_paisa")
+  rideRequestId     String?       @map("ride_request_id") @db.Uuid
+  reason            String?       @db.VarChar(40) // e.g. SEED for the demo opening balance
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  wallet      Wallet       @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  rideRequest RideRequest? @relation(fields: [rideRequestId], references: [id], onDelete: Restrict)
+  payment     Payment?
+
+  @@index([walletId, createdAt(sort: Desc)])
+  @@map("wallet_transactions")
+}
+
+// ---------------------------------------------------------------- audit trail (FR-HIST-01…04)
+
+model StatusHistory {
+  id          BigInt      @id @default(autoincrement())
+  entityType  AuditEntity @map("entity_type")
+  entityId    String      @map("entity_id") @db.Uuid // ride, pool or driver id (no FK: polymorphic)
+  fromStatus  String?     @map("from_status") @db.VarChar(20)
+  toStatus    String      @map("to_status") @db.VarChar(20)
+  actorUserId String?     @map("actor_user_id") @db.Uuid
+  actorRole   ActorRole   @map("actor_role")
+  reason      String?     @db.VarChar(40)
+  metadata    Json?
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId, createdAt])
+  @@map("status_history")
 }

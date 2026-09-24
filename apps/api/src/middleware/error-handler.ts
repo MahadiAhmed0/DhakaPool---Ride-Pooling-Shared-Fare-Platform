@@ -2,6 +2,7 @@
 // Unexpected errors are logged in full but reach the client only as a generic message (NFR-SEC-09).
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
+import { mapDatabaseError } from '../db/errors.ts';
 import { AppError, InternalError, ValidationError } from '../domain/errors.ts';
 
 type BodyParserError = { type?: string };
@@ -13,6 +14,10 @@ function isBodyParserError(error: unknown, type: string): boolean {
 function toAppError(error: unknown): AppError {
   if (error instanceof AppError) {
     return error;
+  }
+  const databaseError = mapDatabaseError(error);
+  if (databaseError) {
+    return databaseError;
   }
   if (error instanceof ZodError) {
     const fields = error.issues.map((issue) => ({
