@@ -55,3 +55,39 @@ export async function updateGenderRestriction(
 ): Promise<void> {
   await tx.pool.update({ where: { id: poolId }, data: { genderRestriction } });
 }
+
+export type Membership = { id: string; poolId: string; seats: number };
+
+// FR-POOL-09: a ride is in at most one pool at a time (also a partial unique index).
+export async function findActiveMembership(
+  tx: Tx,
+  rideRequestId: string,
+): Promise<Membership | null> {
+  return tx.poolMember.findFirst({
+    where: { rideRequestId, leftAt: null },
+    select: { id: true, poolId: true, seats: true },
+  });
+}
+
+// Before the trip starts, a member who leaves keeps their row, marked with left_at (ERD §3).
+export async function markMemberLeft(tx: Tx, membership: Membership, now: Date): Promise<void> {
+  await tx.poolMember.update({ where: { id: membership.id }, data: { leftAt: now } });
+  await tx.pool.update({
+    where: { id: membership.poolId },
+    data: { occupiedSeats: { decrement: membership.seats } },
+  });
+}
+
+// Compare-and-set on the pool's status (NFR-CON-02). Returns false if it changed meanwhile.
+export async function markPoolCancelled(
+  tx: Tx,
+  poolId: string,
+  expectedStatus: PoolRow['status'],
+  reason: string,
+): Promise<boolean> {
+  const { count } = await tx.pool.updateMany({
+    where: { id: poolId, status: expectedStatus },
+    data: { status: 'CANCELLED', cancelReason: reason, cancelledAt: new Date() },
+  });
+  return count === 1;
+}

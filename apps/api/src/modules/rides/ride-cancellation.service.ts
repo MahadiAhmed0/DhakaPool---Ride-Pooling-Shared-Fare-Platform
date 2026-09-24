@@ -1,16 +1,21 @@
-// A passenger cancels their own ride (FR-PAX-08, BR-07; RT-03).
-// A ride nobody has accepted yet is cancelled here, free of charge. A ride in a pool also frees its
-// seats (FR-POOL-06), so that case belongs to the pooling module and is refused here for now.
+// A passenger cancels their own ride (FR-PAX-08, BR-07).
+// - REQUESTED (RT-03): free; nothing else to undo.
+// - MATCHED (RT-06): free; the seats in the pool are freed and an empty pool ends (FR-POOL-06, -07).
+// - DRIVER_ARRIVED (RT-09) costs the cancellation fee and is added with the trip lifecycle.
+// - STARTED or finished: refused.
 import type { RideDetail, RideStatus } from '@dhakapool/shared';
 import { type Tx, withTransaction } from '../../db/transaction.ts';
 import { cancellationPolicy } from '../../domain/cancellation.ts';
 import { ConflictError, NotFoundError } from '../../domain/errors.ts';
 import { recordTransition } from '../audit/audit.service.ts';
+import { leavePoolBeforeStart, lockPoolOfRide } from '../pools/leave-pool.service.ts';
 import { expireOverdueRidesOf } from './ride-expiry.service.ts';
 import { findPassengerRideStatus, markRideCancelled } from './rides.repository.ts';
 import { getRideForPassenger } from './rides.service.ts';
 
 const PASSENGER_CANCELLED = 'PASSENGER_CANCELLED';
+
+type Cancellation = { tx: Tx; passengerId: string; rideId: string };
 
 function cannotCancel(status: RideStatus, message: string): ConflictError {
   return new ConflictError('INVALID_STATE_TRANSITION', message, {
@@ -28,20 +33,50 @@ function forbiddenMessage(status: RideStatus): string {
   return `This ride is already ${status.toLowerCase()}, so there is nothing to cancel.`;
 }
 
-async function cancelUnmatchedRide(tx: Tx, passengerId: string, rideId: string): Promise<void> {
-  const isCancelled = await markRideCancelled(tx, rideId, 'REQUESTED', PASSENGER_CANCELLED);
-  if (!isCancelled) {
-    // A driver accepted it (or it expired) between our read and our write.
-    throw cannotCancel('REQUESTED', 'Your ride changed just now. Please check it and try again.');
+// Moves the ride to CANCELLED only if it is still in `fromStatus` (compare-and-set), then audits it.
+async function cancelFrom(cancellation: Cancellation, fromStatus: RideStatus): Promise<boolean> {
+  const { tx, passengerId, rideId } = cancellation;
+  if (!(await markRideCancelled(tx, rideId, fromStatus, PASSENGER_CANCELLED))) {
+    return false;
   }
   await recordTransition(tx, {
     entityType: 'RIDE_REQUEST',
     entityId: rideId,
-    fromStatus: 'REQUESTED',
+    fromStatus,
     toStatus: 'CANCELLED',
     actor: { role: 'PASSENGER', userId: passengerId },
     reason: PASSENGER_CANCELLED,
   });
+  return true;
+}
+
+// RT-06: lock the pool first (lock order pool → ride), then cancel the ride, then free its seats.
+async function cancelMatchedRide(cancellation: Cancellation): Promise<boolean> {
+  const membership = await lockPoolOfRide(cancellation.tx, cancellation.rideId);
+  if (!membership || !(await cancelFrom(cancellation, 'MATCHED'))) {
+    return false;
+  }
+  await leavePoolBeforeStart(cancellation.tx, membership);
+  return true;
+}
+
+// Returns false when the ride changed between reading its status and writing the new one.
+async function tryToCancel(cancellation: Cancellation): Promise<boolean> {
+  const { tx, passengerId, rideId } = cancellation;
+  const status = await findPassengerRideStatus(tx, passengerId, rideId);
+  if (!status) {
+    throw new NotFoundError('Ride not found.');
+  }
+  if (cancellationPolicy(status) === 'FORBIDDEN') {
+    throw cannotCancel(status, forbiddenMessage(status));
+  }
+  if (status === 'REQUESTED') {
+    return cancelFrom(cancellation, 'REQUESTED');
+  }
+  if (status === 'MATCHED') {
+    return cancelMatchedRide(cancellation);
+  }
+  throw cannotCancel(status, 'Cancelling after the driver has arrived is not available yet.');
 }
 
 export async function cancelRideByPassenger(
@@ -51,20 +86,16 @@ export async function cancelRideByPassenger(
   // An overdue request is EXPIRED, not cancellable (NFR-REL-04).
   await expireOverdueRidesOf(passengerId);
   await withTransaction(async (tx) => {
-    const status = await findPassengerRideStatus(tx, passengerId, rideId);
-    if (!status) {
-      throw new NotFoundError('Ride not found.');
+    const cancellation = { tx, passengerId, rideId };
+    // A driver may accept the ride at the same moment (TC-17). If so, the status we read is stale:
+    // read it again once and cancel from the new status.
+    if ((await tryToCancel(cancellation)) || (await tryToCancel(cancellation))) {
+      return;
     }
-    if (cancellationPolicy(status) === 'FORBIDDEN') {
-      throw cannotCancel(status, forbiddenMessage(status));
-    }
-    if (status !== 'REQUESTED') {
-      throw cannotCancel(
-        status,
-        'Cancelling a ride that a driver has accepted is not available yet.',
-      );
-    }
-    await cancelUnmatchedRide(tx, passengerId, rideId);
+    throw new ConflictError(
+      'INVALID_STATE_TRANSITION',
+      'Your ride changed just now. Please check it and try again.',
+    );
   });
   return getRideForPassenger(passengerId, rideId);
 }
