@@ -22,3 +22,11 @@ export async function updateAvailability(
     data: { availability, currentZoneCode },
   });
 }
+
+// PT-06: after the last drop-off the driver is where that passenger got off.
+export async function updateCurrentZone(tx: Tx, driverId: string, zoneCode: string): Promise<void> {
+  await tx.driverProfile.update({
+    where: { userId: driverId },
+    data: { currentZoneCode: zoneCode },
+  });
+}

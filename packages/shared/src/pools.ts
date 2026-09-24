@@ -26,4 +26,8 @@ export type DriverPoolView = {
   genderRestriction: GenderRestriction; // shown as a "Women-only ride" badge (BR-18)
   createdAt: string;
   members: DriverPoolMember[];
+  totalFarePaisa: number; // the fixed fares of this trip added up (FR-DRV-13); 0 before the start
 };
+
+// GET /api/driver/pools takes the same scope, cursor and limit as a passenger's ride list.
+export type DriverPoolList = { pools: DriverPoolView[]; nextCursor: string | null };

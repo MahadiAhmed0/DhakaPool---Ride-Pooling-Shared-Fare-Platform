@@ -1,6 +1,7 @@
 // HTTP handlers for a driver's trip commands (SRS §8.2). Each returns the updated trip.
 import type { Request, Response } from 'express';
 import { idParam } from '../../middleware/id-param.ts';
+import { dropOff } from './drop-off.service.ts';
 import { markArrived, startTrip } from './trip.service.ts';
 
 function poolIdFrom(req: Request): string {
@@ -15,4 +16,10 @@ export async function postArrive(req: Request, res: Response): Promise<void> {
 // POST /api/pools/:id/start (FR-DRV-08) — fixes the fares (BR-12)
 export async function postStart(req: Request, res: Response): Promise<void> {
   res.status(200).json({ pool: await startTrip(req.user!.id, poolIdFrom(req)) });
+}
+
+// POST /api/pools/:id/members/:rideId/complete — drop one passenger off (FR-DRV-09)
+export async function postDropOff(req: Request, res: Response): Promise<void> {
+  const rideId = idParam(req, 'rideId', 'This passenger is not in this trip.');
+  res.status(200).json({ pool: await dropOff(req.user!.id, poolIdFrom(req), rideId) });
 }

@@ -93,3 +93,38 @@ export async function markPoolMoved(
   });
   return count === 1;
 }
+
+// FR-DRV-09: the passenger is off, so their seats are free again. The order is kept for the record.
+export async function markMemberDroppedOff(
+  tx: Tx,
+  membership: Membership,
+  dropoffOrder: number,
+  now: Date,
+): Promise<void> {
+  await tx.poolMember.update({
+    where: { id: membership.id },
+    data: { droppedOffAt: now, dropoffOrder },
+  });
+  await tx.pool.update({
+    where: { id: membership.poolId },
+    data: { occupiedSeats: { decrement: membership.seats } },
+  });
+}
+
+export type PoolPage = {
+  driverId: string;
+  statuses: readonly PoolRow['status'][];
+  cursor?: string;
+  limit: number;
+};
+
+// Newest first. Asks for one extra pool to find out whether there is another page.
+export async function findDriverPools(tx: Tx, page: PoolPage): Promise<PoolRow[]> {
+  return tx.pool.findMany({
+    where: { driverId: page.driverId, status: { in: [...page.statuses] } },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: page.limit + 1,
+    ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
+    include: POOL_INCLUDE,
+  });
+}

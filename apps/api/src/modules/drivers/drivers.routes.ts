@@ -5,6 +5,7 @@ import { requireRole } from '../../middleware/require-auth.ts';
 import { validateBody } from '../../middleware/validate.ts';
 import {
   getAvailability,
+  getPools,
   getRequests,
   postAcceptRequest,
   putAvailability,
@@ -17,3 +18,4 @@ driversRouter.get('/availability', getAvailability);
 driversRouter.put('/availability', validateBody(availabilitySchema), putAvailability);
 driversRouter.get('/requests', getRequests);
 driversRouter.post('/requests/:id/accept', postAcceptRequest);
+driversRouter.get('/pools', getPools);

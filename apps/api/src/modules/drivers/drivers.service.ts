@@ -7,7 +7,12 @@ import { ConflictError, NotFoundError } from '../../domain/errors.ts';
 import { recordTransition } from '../audit/audit.service.ts';
 import { findActivePoolOf } from '../pools/pools.service.ts';
 import { assertZoneExists } from '../zones/zones.service.ts';
-import { type DriverRow, findDriver, updateAvailability } from './drivers.repository.ts';
+import {
+  type DriverRow,
+  findDriver,
+  updateAvailability,
+  updateCurrentZone,
+} from './drivers.repository.ts';
 
 export type Driver = DriverRow & { vehicle: NonNullable<DriverRow['vehicle']> };
 
@@ -90,4 +95,9 @@ export async function setAvailability(
     });
   });
   return getDriverStatus(driverId);
+}
+
+// PT-06: call with the driver locked (every trip command locks the driver first).
+export async function moveDriverToZone(tx: Tx, driverId: string, zoneCode: string): Promise<void> {
+  await updateCurrentZone(tx, driverId, zoneCode);
 }
