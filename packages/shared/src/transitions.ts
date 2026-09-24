@@ -59,6 +59,9 @@ export const ACTIVE_RIDE_STATUSES: readonly RideStatus[] = [
   'STARTED',
 ];
 
+// A ride in one of these statuses never changes again (SRS §5.1).
+export const TERMINAL_RIDE_STATUSES: readonly RideStatus[] = ['COMPLETED', 'CANCELLED', 'EXPIRED'];
+
 // A pool in one of these statuses is "active": a driver may have only one (BR-04).
 export const ACTIVE_POOL_STATUSES: readonly PoolStatus[] = ['OPEN', 'DRIVER_ARRIVED', 'STARTED'];
 

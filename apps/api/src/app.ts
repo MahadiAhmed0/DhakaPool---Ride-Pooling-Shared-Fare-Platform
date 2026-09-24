@@ -15,6 +15,7 @@ import { loadSession } from './middleware/session.ts';
 import { createAuthRouter } from './modules/auth/auth.routes.ts';
 import { faresRouter } from './modules/fares/fares.routes.ts';
 import { healthRouter } from './modules/health/health.routes.ts';
+import { ridesRouter } from './modules/rides/rides.routes.ts';
 import { zonesRouter } from './modules/zones/zones.routes.ts';
 
 // Largest JSON body the API accepts (ARCHITECTURE §8). Every request body is small.
@@ -46,6 +47,7 @@ export function createApp(options: AppOptions = {}): Express {
   app.use('/api/auth', createAuthRouter(createAuthRateLimiter(authAttempts)));
   app.use('/api/zones', zonesRouter);
   app.use('/api/fares', faresRouter);
+  app.use('/api/rides', ridesRouter);
 
   app.use(notFound);
   app.use(errorHandler);

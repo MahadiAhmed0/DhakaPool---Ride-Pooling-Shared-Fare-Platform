@@ -4,5 +4,7 @@ export * from './enums.ts';
 export * from './fares.ts';
 export * from './health.ts';
 export * from './money.ts';
+export * from './rides.ts';
 export * from './transitions.ts';
+export * from './trips.ts';
 export * from './zones.ts';
