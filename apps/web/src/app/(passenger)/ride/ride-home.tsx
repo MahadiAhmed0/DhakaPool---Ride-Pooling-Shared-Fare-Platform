@@ -1,8 +1,8 @@
 'use client';
-// The passenger's home: with no active ride, the request form; with one, where it is (BR-05:
+// The passenger's home: with no active ride, the request form; with one, the live tracker (BR-05:
 // one active ride at a time, so the form is not offered while a ride is under way).
 import Link from 'next/link';
-import { RideStatusBadge } from '@/components/ui/badge';
+import { RideTracker } from '@/components/rides/ride-tracker';
 import { Card } from '@/components/ui/card';
 import { ErrorState, LoadingState } from '@/components/ui/states';
 import { useActiveRide, useCurrentUser, useZones } from '@/lib/passenger-queries';
@@ -23,14 +23,12 @@ export function RideHome() {
   }
   if (activeRide.data) {
     return (
-      <Card title="Your ride">
-        <RideStatusBadge status={activeRide.data.status} />
-        <p className="mt-3">
-          <Link href={`/rides/${activeRide.data.id}`} className="font-bold underline">
-            Follow your ride
-          </Link>
-        </p>
-      </Card>
+      <>
+        <RideTracker ride={activeRide.data} />
+        <Link href={`/rides/${activeRide.data.id}`} className="font-bold underline">
+          See every step of this ride
+        </Link>
+      </>
     );
   }
   return (
