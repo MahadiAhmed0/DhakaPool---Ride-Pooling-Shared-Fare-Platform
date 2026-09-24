@@ -1,12 +1,8 @@
-// Home page placeholder until the passenger and driver screens are built.
-import { ApiStatus } from '@/components/api-status';
+// The front door: signed-in people go to their role's home page, everyone else to sign-in.
+import { redirect } from 'next/navigation';
+import { getSignedInUser, homeFor } from '@/lib/server-session';
 
-export default function HomePage() {
-  return (
-    <main className="p-8">
-      <h1 className="text-3xl font-bold">Dhaka Tesla Pool</h1>
-      <p className="mt-2">Share a seat. Split the fare. Survive Dhaka traffic.</p>
-      <ApiStatus />
-    </main>
-  );
+export default async function HomePage() {
+  const user = await getSignedInUser();
+  redirect(user ? homeFor(user.role) : '/login');
 }

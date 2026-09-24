@@ -37,3 +37,25 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={CONTROL_CLASSES} {...props} />;
 }
+
+type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & {
+  id: string;
+  label: string;
+  hint?: string;
+  error?: string;
+};
+
+// A labelled text input with its hint and error, the most common form field. Screen readers
+// announce the error with the input (aria-describedby).
+export function TextField({ id, label, hint, error, ...inputProps }: TextFieldProps) {
+  return (
+    <Field id={id} label={label} hint={hint} error={error}>
+      <Input
+        id={id}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+        {...inputProps}
+      />
+    </Field>
+  );
+}

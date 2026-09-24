@@ -3,6 +3,9 @@
 import { z } from 'zod';
 import { GENDERS, type Gender, type UserRole } from './enums.ts';
 
+// The session cookie (ADR-0005). The web app's server-side guards forward it to the API.
+export const SESSION_COOKIE_NAME = 'dtp_session';
+
 export const PASSWORD_MIN_LENGTH = 8; // FR-AUTH-01
 export const PASSWORD_MAX_LENGTH = 72; // bcrypt only uses the first 72 bytes of a password
 const FULL_NAME_MAX_LENGTH = 100;
