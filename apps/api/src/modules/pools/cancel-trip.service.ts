@@ -9,8 +9,8 @@ import { withTransaction } from '../../db/transaction.ts';
 import { ConflictError } from '../../domain/errors.ts';
 import { assertPoolMove, assertRideMove } from '../../domain/state-machine.ts';
 import type { Actor } from '../audit/audit.service.ts';
-import { recordCancellationFee } from '../fares/fare-lock.service.ts';
 import { moveTripRides } from '../rides/trip-rides.service.ts';
+import { chargeCancellationFee } from '../wallet/settlement.service.ts';
 import { leavePoolBeforeStart } from './leave-pool.service.ts';
 import { findMember, lockOwnPool, rideIdsWithStatus } from './own-pool.ts';
 import { movePool } from './pool-moves.ts';
@@ -77,7 +77,7 @@ export async function markNoShow(
       poolId,
       reason: NO_SHOW,
     });
-    await recordCancellationFee(tx, member.rideRequest); // BR-07, FR-FARE-05
+    await chargeCancellationFee(tx, member.rideRequest, driver); // BR-07, FR-PAY-05
     await leavePoolBeforeStart(tx, member);
   });
   return getPoolView(poolId);
