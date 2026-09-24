@@ -16,6 +16,7 @@ import { createAuthRouter } from './modules/auth/auth.routes.ts';
 import { driversRouter } from './modules/drivers/drivers.routes.ts';
 import { faresRouter } from './modules/fares/fares.routes.ts';
 import { healthRouter } from './modules/health/health.routes.ts';
+import { poolsRouter } from './modules/pools/pools.routes.ts';
 import { ridesRouter } from './modules/rides/rides.routes.ts';
 import { zonesRouter } from './modules/zones/zones.routes.ts';
 
@@ -50,6 +51,7 @@ export function createApp(options: AppOptions = {}): Express {
   app.use('/api/fares', faresRouter);
   app.use('/api/rides', ridesRouter);
   app.use('/api/driver', driversRouter);
+  app.use('/api/pools', poolsRouter);
 
   app.use(notFound);
   app.use(errorHandler);

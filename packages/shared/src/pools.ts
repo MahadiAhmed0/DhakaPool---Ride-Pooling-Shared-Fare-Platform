@@ -11,7 +11,8 @@ export type DriverPoolMember = {
   seats: number;
   status: RideStatus;
   paymentMethod: PaymentMethod;
-  estimatedFarePaisa: number; // the solo estimate; the charged fare is fixed at trip start (BR-12)
+  estimatedFarePaisa: number; // the solo estimate, until the trip starts
+  lockedFarePaisa: number | null; // the fare fixed at trip start (BR-12)
 };
 
 export type DriverPoolView = {

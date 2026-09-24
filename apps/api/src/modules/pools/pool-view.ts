@@ -2,7 +2,13 @@
 // for matching but never copied here (A-20).
 import type { DriverPoolView } from '@dhakapool/shared';
 import { paisaFromDb } from '../../db/money.ts';
+import type { Fare } from '../../generated/prisma/client.ts';
 import type { PoolRow } from './pools.repository.ts';
+
+function lockedFareOf(fares: Fare[]): number | null {
+  const rideFare = fares.find((fare) => fare.type === 'RIDE');
+  return rideFare ? paisaFromDb(rideFare.totalPaisa) : null;
+}
 
 export function toDriverPoolView(pool: PoolRow): DriverPoolView {
   return {
@@ -24,6 +30,7 @@ export function toDriverPoolView(pool: PoolRow): DriverPoolView {
       status: ride.status,
       paymentMethod: ride.paymentMethod,
       estimatedFarePaisa: paisaFromDb(ride.estimatedFarePaisa),
+      lockedFarePaisa: lockedFareOf(ride.fares),
     })),
   };
 }

@@ -11,7 +11,9 @@ const POOL_INCLUDE = {
     where: { leftAt: null },
     orderBy: { joinedAt: 'asc' },
     include: {
-      rideRequest: { include: { passenger: { select: { fullName: true, gender: true } } } },
+      rideRequest: {
+        include: { passenger: { select: { fullName: true, gender: true } }, fares: true },
+      },
     },
   },
 } satisfies Prisma.PoolInclude;
@@ -79,15 +81,15 @@ export async function markMemberLeft(tx: Tx, membership: Membership, now: Date):
 }
 
 // Compare-and-set on the pool's status (NFR-CON-02). Returns false if it changed meanwhile.
-export async function markPoolCancelled(
+export async function markPoolMoved(
   tx: Tx,
   poolId: string,
   expectedStatus: PoolRow['status'],
-  reason: string,
+  data: Prisma.PoolUpdateManyMutationInput,
 ): Promise<boolean> {
   const { count } = await tx.pool.updateMany({
     where: { id: poolId, status: expectedStatus },
-    data: { status: 'CANCELLED', cancelReason: reason, cancelledAt: new Date() },
+    data,
   });
   return count === 1;
 }

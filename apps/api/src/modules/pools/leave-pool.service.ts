@@ -5,15 +5,13 @@
 import { lockPool } from '../../db/lock.ts';
 import type { Tx } from '../../db/transaction.ts';
 import { genderRestriction } from '../../domain/pool-restriction.ts';
-import { assertPoolMove } from '../../domain/state-machine.ts';
-import { recordTransition, SYSTEM_ACTOR } from '../audit/audit.service.ts';
+import { SYSTEM_ACTOR } from '../audit/audit.service.ts';
+import { movePool } from './pool-moves.ts';
 import {
   findActiveMembership,
   findPool,
   markMemberLeft,
-  markPoolCancelled,
   type Membership,
-  type PoolRow,
   updateGenderRestriction,
 } from './pools.repository.ts';
 import { restrictionMembersOf } from './pools.service.ts';
@@ -33,20 +31,6 @@ export async function lockPoolOfRide(tx: Tx, rideId: string): Promise<Membership
   return findActiveMembership(tx, rideId);
 }
 
-// PT-05 (FR-POOL-07): the system ends a pool that nobody is left in.
-async function cancelEmptyPool(tx: Tx, pool: PoolRow): Promise<void> {
-  assertPoolMove(pool.status, 'CANCELLED', 'SYSTEM');
-  await markPoolCancelled(tx, pool.id, pool.status, ALL_MEMBERS_CANCELLED);
-  await recordTransition(tx, {
-    entityType: 'POOL',
-    entityId: pool.id,
-    fromStatus: pool.status,
-    toStatus: 'CANCELLED',
-    actor: SYSTEM_ACTOR,
-    reason: ALL_MEMBERS_CANCELLED,
-  });
-}
-
 // Call with the pool locked (lockPoolOfRide), after the ride itself has changed status.
 export async function leavePoolBeforeStart(tx: Tx, membership: Membership): Promise<void> {
   await markMemberLeft(tx, membership, new Date());
@@ -55,7 +39,12 @@ export async function leavePoolBeforeStart(tx: Tx, membership: Membership): Prom
     return;
   }
   if (pool.members.length === 0) {
-    await cancelEmptyPool(tx, pool);
+    // PT-05 (FR-POOL-07): the system ends a pool that nobody is left in.
+    await movePool(tx, pool, {
+      to: 'CANCELLED',
+      actor: SYSTEM_ACTOR,
+      reason: ALL_MEMBERS_CANCELLED,
+    });
     return;
   }
   const restriction = genderRestriction(restrictionMembersOf(pool));
