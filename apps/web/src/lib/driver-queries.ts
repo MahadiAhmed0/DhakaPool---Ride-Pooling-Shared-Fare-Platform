@@ -7,8 +7,15 @@ import type {
   DriverStatus,
   WaitingRequest,
 } from '@dhakapool/shared';
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  type UseInfiniteQueryResult,
+  useQuery,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import { api } from './api-client';
+import { pagePath } from './page-path';
 import { queryKeys } from './query-keys';
 
 // NFR-PERF-03: the live driver screens refresh every 4 s; TanStack Query pauses this while the tab
@@ -43,5 +50,16 @@ export function useActivePool(): UseQueryResult<DriverPoolView | null> {
     queryFn: async () =>
       (await api.get<DriverPoolList>('/driver/pools?scope=active')).pools[0] ?? null,
     refetchInterval: (query) => (query.state.data ? LIVE_DRIVER_REFRESH_MS : false),
+  });
+}
+
+// The driver's finished and cancelled trips, newest first, a page at a time (FR-DRV-13).
+export function usePoolHistory(): UseInfiniteQueryResult<InfiniteData<DriverPoolList>> {
+  return useInfiniteQuery({
+    queryKey: queryKeys.poolHistory,
+    queryFn: ({ pageParam }) =>
+      api.get<DriverPoolList>(pagePath('/driver/pools?scope=history', pageParam)),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
 }

@@ -20,6 +20,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { api } from './api-client';
+import { pagePath } from './page-path';
 import { queryKeys } from './query-keys';
 
 // FR-PAX-07, NFR-PERF-03: a live ride refreshes every 4 s. TanStack Query pauses this while the
@@ -68,12 +69,6 @@ export function useWallet(): UseQueryResult<WalletView> {
     queryKey: queryKeys.wallet,
     queryFn: async () => (await api.get<{ wallet: WalletView }>('/wallet')).wallet,
   });
-}
-
-// Lists come a page at a time; "Show more" asks for the page after the last one (FR-PAX-09).
-function pagePath(path: string, cursor: string | undefined): string {
-  const separator = path.includes('?') ? '&' : '?';
-  return cursor ? `${path}${separator}cursor=${cursor}` : path;
 }
 
 export function useRideHistory(): UseInfiniteQueryResult<InfiniteData<RideList>> {
