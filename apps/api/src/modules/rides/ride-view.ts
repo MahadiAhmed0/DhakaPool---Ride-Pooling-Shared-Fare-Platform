@@ -76,6 +76,12 @@ export async function toRideView(ride: RideRow): Promise<RideView> {
     completedAt: isoOrNull(ride.completedAt),
     cancelReason: ride.cancelReason,
     fare: await toRideFare(ride),
+    payments: ride.payments.map((payment) => ({
+      charge: payment.fare.type,
+      method: payment.method,
+      status: payment.status,
+      amountPaisa: paisaFromDb(payment.amountPaisa),
+    })),
     trip: toRideTrip(ride),
   };
 }

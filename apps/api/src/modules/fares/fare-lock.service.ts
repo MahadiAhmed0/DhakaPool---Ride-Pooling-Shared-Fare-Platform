@@ -6,7 +6,9 @@ import { paisaToDb } from '../../db/money.ts';
 import type { Tx } from '../../db/transaction.ts';
 import { computeFare } from '../../domain/fare.ts';
 import { distanceBetween } from '../zones/zones.service.ts';
-import { insertFares } from './fares.repository.ts';
+import { type Charge, findCharge, insertFare, insertFares } from './fares.repository.ts';
+
+export type { Charge } from './fares.repository.ts';
 
 export type OnBoardRide = {
   id: string;
@@ -44,21 +46,23 @@ export async function lockRideFares(tx: Tx, rides: OnBoardRide[], pooled: boolea
 export async function recordCancellationFee(
   tx: Tx,
   ride: { id: string; seats: number },
-): Promise<number> {
-  await insertFares(tx, [
-    {
-      rideRequestId: ride.id,
-      type: 'CANCELLATION_FEE',
-      basePaisa: 0,
-      distanceM: 0,
-      perKmPaisa: 0,
-      distanceChargePaisa: 0n,
-      discountBps: 0,
-      discountPaisa: 0n,
-      seats: ride.seats,
-      pooled: false,
-      totalPaisa: paisaToDb(CANCELLATION_FEE_PAISA),
-    },
-  ]);
-  return CANCELLATION_FEE_PAISA;
+): Promise<Charge> {
+  return insertFare(tx, {
+    rideRequestId: ride.id,
+    type: 'CANCELLATION_FEE',
+    basePaisa: 0,
+    distanceM: 0,
+    perKmPaisa: 0,
+    distanceChargePaisa: 0n,
+    discountBps: 0,
+    discountPaisa: 0n,
+    seats: ride.seats,
+    pooled: false,
+    totalPaisa: paisaToDb(CANCELLATION_FEE_PAISA),
+  });
+}
+
+// The fare fixed at the start of the trip, for settling it at drop-off (BR-15, BR-16).
+export async function findRideFare(tx: Tx, rideId: string): Promise<Charge | null> {
+  return findCharge(tx, rideId, 'RIDE');
 }

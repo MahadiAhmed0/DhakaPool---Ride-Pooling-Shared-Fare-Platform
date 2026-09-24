@@ -21,6 +21,7 @@ export function toDriverPoolView(pool: PoolRow): DriverPoolView {
     paymentMethod: ride.paymentMethod,
     estimatedFarePaisa: paisaFromDb(ride.estimatedFarePaisa),
     lockedFarePaisa: lockedFareOf(ride.fares),
+    paymentStatus: ride.payments.find((payment) => payment.fare.type === 'RIDE')?.status ?? null,
   }));
   return {
     id: pool.id,

@@ -8,6 +8,7 @@ import type { Prisma } from '../../generated/prisma/client.ts';
 // are loaded — enough to count co-riders, and nothing that could leak their details (A-09).
 const RIDE_VIEW_INCLUDE = {
   fares: true,
+  payments: { include: { fare: { select: { type: true } } } },
   poolMembers: {
     where: { leftAt: null },
     include: {

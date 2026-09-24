@@ -4,9 +4,11 @@
 import { z } from 'zod';
 import {
   type ActorRole,
+  type ChargeType,
   type GenderRestriction,
   PAYMENT_METHODS,
   type PaymentMethod,
+  type PaymentStatus,
   type RideStatus,
 } from './enums.ts';
 import type { FareBreakdown } from './fares.ts';
@@ -44,6 +46,14 @@ export type RideFare = {
   cancellationFeePaisa: number | null; // BR-07, when a fee was charged
 };
 
+// How a charge was settled (FR-PAY-03…05): "Cash due ৳60.00" is { CASH, PENDING_CASH, 6000 }.
+export type RidePayment = {
+  charge: ChargeType; // RIDE or CANCELLATION_FEE
+  method: PaymentMethod; // TeslaPay falls back to cash when the balance is short (A-14)
+  status: PaymentStatus;
+  amountPaisa: number;
+};
+
 // The Tesla trip the ride belongs to, once a driver has accepted it.
 export type RideTrip = {
   driverName: string;
@@ -68,6 +78,7 @@ export type RideView = {
   completedAt: string | null;
   cancelReason: string | null;
   fare: RideFare;
+  payments: RidePayment[];
   trip: RideTrip | null;
 };
 

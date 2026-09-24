@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { requireRole } from '../../middleware/require-auth.ts';
 import {
   postArrive,
+  postCashCollected,
   postCancelTrip,
   postDropOff,
   postNoShow,
@@ -18,3 +19,4 @@ poolsRouter.post('/:id/start', postStart);
 poolsRouter.post('/:id/cancel', postCancelTrip);
 poolsRouter.post('/:id/members/:rideId/complete', postDropOff);
 poolsRouter.post('/:id/members/:rideId/no-show', postNoShow);
+poolsRouter.post('/:id/members/:rideId/cash-collected', postCashCollected);

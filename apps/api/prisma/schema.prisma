@@ -103,6 +103,7 @@ enum AuditEntity {
   RIDE_REQUEST
   POOL
   DRIVER
+  PAYMENT // how a charge was settled, including cash collected (FR-DRV-10)
 
   @@map("audit_entity")
 }

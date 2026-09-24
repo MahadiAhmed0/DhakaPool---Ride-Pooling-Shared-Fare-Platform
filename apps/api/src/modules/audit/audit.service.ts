@@ -1,5 +1,5 @@
-// The audit trail (FR-HIST-01…04): one row for every status change of a ride, pool or driver,
-// written in the same transaction as the change, so the two are saved together or not at all.
+// The audit trail (FR-HIST-01…04): one row for every status change of a ride, pool, driver or
+// payment, written in the same transaction as the change, so the two are saved together or not at all.
 // Each change is also logged at INFO (NFR-OBS-02). Call it as the last step of the transaction.
 import type { ActorRole } from '@dhakapool/shared';
 import type { Tx } from '../../db/transaction.ts';
@@ -34,6 +34,7 @@ const LOG_EVENT: Record<AuditEntity, string> = {
   RIDE_REQUEST: 'ride.transition',
   POOL: 'pool.transition',
   DRIVER: 'driver.transition',
+  PAYMENT: 'payment.transition',
 };
 
 export async function recordTransitions(tx: Tx, transitions: Transition[]): Promise<void> {
