@@ -1,6 +1,8 @@
-// HTTP handlers for the driver's own status and request feed.
+// HTTP handlers for the driver's own status, the request feed and accepting a request.
 import type { AvailabilityChange } from '@dhakapool/shared';
 import type { Request, Response } from 'express';
+import { idParam } from '../../middleware/id-param.ts';
+import { acceptRequest } from '../pools/accept-request.service.ts';
 import { getDriverStatus, setAvailability } from './drivers.service.ts';
 import { listRelevantRequests } from './request-feed.service.ts';
 
@@ -18,4 +20,10 @@ export async function putAvailability(req: Request, res: Response): Promise<void
 // GET /api/driver/requests — the waiting requests this driver may accept (FR-DRV-04).
 export async function getRequests(req: Request, res: Response): Promise<void> {
   res.status(200).json({ requests: await listRelevantRequests(req.user!.id) });
+}
+
+// POST /api/driver/requests/:id/accept — take the request into this driver's trip (FR-DRV-05).
+export async function postAcceptRequest(req: Request, res: Response): Promise<void> {
+  const rideId = idParam(req, 'id', 'Request not found.');
+  res.status(200).json({ pool: await acceptRequest(req.user!.id, rideId) });
 }

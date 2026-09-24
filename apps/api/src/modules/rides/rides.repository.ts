@@ -144,3 +144,14 @@ export async function findWaitingRides(filter: WaitingRideFilter): Promise<Waiti
 export async function findWaitingRide(tx: Tx, rideId: string): Promise<WaitingRide | null> {
   return tx.rideRequest.findUnique({ where: { id: rideId }, include: WAITING_RIDE_INCLUDE });
 }
+
+// RT-02 as a compare-and-set: only a request that is still REQUESTED and not yet expired can be
+// matched (NFR-CON-02, NFR-REL-04). Returns false when another driver or the passenger got there
+// first, or the request ran out of time.
+export async function markRideMatched(tx: Tx, rideId: string, now: Date): Promise<boolean> {
+  const { count } = await tx.rideRequest.updateMany({
+    where: { id: rideId, status: 'REQUESTED', expiresAt: { gt: now } },
+    data: { status: 'MATCHED' },
+  });
+  return count === 1;
+}

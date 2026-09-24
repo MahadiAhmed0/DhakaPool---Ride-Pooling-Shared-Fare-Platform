@@ -1,18 +1,12 @@
 // HTTP handlers for a passenger's rides. They read the input, call the service and send the result.
 import { rideListQuerySchema, type RideRequestInput } from '@dhakapool/shared';
 import type { Request, Response } from 'express';
-import { z } from 'zod';
-import { NotFoundError } from '../../domain/errors.ts';
+import { idParam } from '../../middleware/id-param.ts';
 import { cancelRideByPassenger } from './ride-cancellation.service.ts';
 import { createRide, getRideForPassenger, listRidesForPassenger } from './rides.service.ts';
 
-// A ride id that is not even a valid id cannot belong to anyone, so it is simply "not found".
-export function rideIdFrom(req: Request): string {
-  const rideId = z.uuid().safeParse(req.params.id);
-  if (!rideId.success) {
-    throw new NotFoundError('Ride not found.');
-  }
-  return rideId.data;
+function rideIdFrom(req: Request): string {
+  return idParam(req, 'id', 'Ride not found.');
 }
 
 // POST /api/rides — request a ride (FR-PAX-03).

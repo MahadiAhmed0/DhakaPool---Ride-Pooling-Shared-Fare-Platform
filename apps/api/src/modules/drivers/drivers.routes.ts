@@ -3,7 +3,12 @@ import { availabilitySchema } from '@dhakapool/shared';
 import { Router } from 'express';
 import { requireRole } from '../../middleware/require-auth.ts';
 import { validateBody } from '../../middleware/validate.ts';
-import { getAvailability, getRequests, putAvailability } from './drivers.controller.ts';
+import {
+  getAvailability,
+  getRequests,
+  postAcceptRequest,
+  putAvailability,
+} from './drivers.controller.ts';
 
 export const driversRouter = Router();
 
@@ -11,3 +16,4 @@ driversRouter.use(requireRole('DRIVER'));
 driversRouter.get('/availability', getAvailability);
 driversRouter.put('/availability', validateBody(availabilitySchema), putAvailability);
 driversRouter.get('/requests', getRequests);
+driversRouter.post('/requests/:id/accept', postAcceptRequest);
