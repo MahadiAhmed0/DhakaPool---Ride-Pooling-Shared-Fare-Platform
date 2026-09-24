@@ -36,6 +36,7 @@ export const CURRENT_FARE_RATES: FareRates = {
 export const TOP_UP_MIN_PAISA = 5_000; // BR-17: ৳50 minimum top-up
 export const TOP_UP_MAX_PAISA = 500_000; // BR-17: ৳5,000 maximum top-up
 export const AUTH_ATTEMPTS_PER_MINUTE = 10; // NFR-SEC-07: sign-up and sign-in attempts per IP
+export const EXPIRY_SWEEP_INTERVAL_SECONDS = 60; // ARCHITECTURE §7.3: how often expiry runs
 
 // FR-PAX-03: 1–6 seats per request. Defined in the shared package because the web form checks it too.
 export { MAX_SEATS_PER_REQUEST } from '@dhakapool/shared';
