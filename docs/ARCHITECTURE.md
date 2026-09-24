@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 0.4 (Draft for review) |
+| Version | 0.5 (Draft for review) |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.3](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -14,6 +14,7 @@
 | 0.2 | 2026-09-24 | Same-gender ride option (SRS BR-18): matching reason, pool restriction maintenance, data minimisation |
 | 0.3 | 2026-09-24 | Synced with the project setup: `config/rules.ts` and `logger.ts` in the layout, Node-based container health checks on `node:24-bookworm-slim` images, `DB_PORT` variable |
 | 0.4 | 2026-09-24 | Synced with the auth module: rate limiting keyed on the client IP behind one trusted proxy hop; sign-out returns 204 |
+| 0.5 | 2026-09-24 | Synced with the zones and fares modules: the domain layer may use `@dhakapool/shared` types; zone reference data cached in memory; fare breakdown shape and `CURRENT_FARE_RATES`; test folder layout as built |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -117,7 +118,7 @@ flowchart LR
 | `controller` | service, shared schemas | Read the validated input, call the service, map to a response DTO (e.g. hide co-rider data, A-09) | Transactions, SQL, rules |
 | `service` | repositories, domain, other modules' services, audit | Use-case orchestration, **transaction boundaries**, ownership checks, locking, audit writes | HTTP objects (`req`/`res`) |
 | `repository` | Prisma `TransactionClient` | Queries. Every function takes the `tx` it runs in. | Rules, HTTP |
-| `domain` | nothing (pure) | `fare.ts`, `matching.ts`, `state-machine.ts`, `money.ts`, `errors.ts` | I/O, Prisma, Date.now (time is passed in) |
+| `domain` | nothing but `@dhakapool/shared` types (pure) | `fare.ts`, `matching.ts`, `state-machine.ts`, `money.ts`, `errors.ts` | I/O, Prisma, Date.now (time is passed in) |
 
 **Transactions are owned by services.** A service opens `withTransaction(async (tx) => { … })` and passes `tx` to every repository call and to `audit.record(tx, …)`. Either everything commits together or nothing does (NFR-CON-02, FR-HIST-01).
 
@@ -126,8 +127,8 @@ flowchart LR
 | Module | Endpoints (SRS §8.2) | Key service functions |
 |---|---|---|
 | `auth` | `POST /api/auth/signup`, `/login`, `/logout`, `GET /api/auth/me` | `signUp`, `logIn` (creates session), `logOut` (revokes), `getMe` |
-| `zones` | `GET /api/zones` | `listZones` (cached in memory; reference data) |
-| `fares` | `POST /api/fares/estimate` | `estimate(pickup, destination, seats)` → solo and pooled |
+| `zones` | `GET /api/zones` | `listZones`, `distanceBetween` (BR-09), `areNeighbours` (BR-08). Reference data is read once and kept in memory; a failed read is not cached. |
+| `fares` | `POST /api/fares/estimate` | `estimateFare({ pickupZoneCode, destinationZoneCode, seats })` → distance, rates, and the solo and pooled breakdowns |
 | `rides` | `POST /api/rides`, `GET /api/rides`, `GET /api/rides/:id`, `POST /api/rides/:id/cancel` | `createRequest`, `listForPassenger`, `getForPassenger`, `cancelByPassenger` |
 | `drivers` | `PUT /api/driver/availability`, `GET /api/driver/requests`, `POST /api/driver/requests/:id/accept`, `GET /api/driver/pools` | `setAvailability`, `listRelevantRequests`, `acceptRequest` (delegates to pools) |
 | `pools` | `POST /api/pools/:id/arrive`, `/start`, `/cancel`, `POST /api/pools/:id/members/:rideId/complete`, `/no-show`, `/cash-collected` | `addMember`, `markArrived`, `startTrip` (locks fares), `dropOff`, `cancelPool`, `markNoShow`, `markCashCollected` |
@@ -137,7 +138,8 @@ flowchart LR
 
 ### 5.4 Pure domain layer
 
-- **`fare.ts`** implements BR-10 exactly: `computeFare({ distanceM, seats, pooled, rates }) → { basePaisa, distanceChargePaisa, discountPaisa, farePerSeatPaisa, totalPaisa }`. Integers in, integers out. `roundHalfUp` is implemented on integers, with no floats involved.
+- **`fare.ts`** implements BR-10 exactly: `computeFare({ distanceM, seats, pooled, rates }) → { pooled, seats, basePaisa, distanceChargePaisa, discountPaisa, farePerSeatPaisa, totalPaisa }` (the shared `FareBreakdown` type). Integers in, integers out. The current rates are `CURRENT_FARE_RATES` in `config/rules.ts`; the caller passes them in, so the function never reads the environment.
+- **`money.ts`** holds `roundHalfUpDiv(numerator, denominator)`. It rounds with the integer remainder, so no floating-point division is involved (BR-13).
 - **`matching.ts`** implements BR-02: `isCompatible(request, pool, members, adjacency, now) → { ok: true } | { ok: false, reason }`. The reasons are `DIFFERENT_PICKUP`, `NOT_OPTED_IN`, `DESTINATION_NOT_ADJACENT`, `JOIN_WINDOW_PASSED`, `GENDER_RESTRICTED` (BR-18), `NO_SEATS` and `POOL_NOT_OPEN`.
 - **`pool-restriction.ts`** computes `genderRestriction(members) → NONE | FEMALE_ONLY | MALE_ONLY` (BR-18). `pools.service` stores the result on the pool whenever a member joins or leaves, inside the same locked transaction.
 - **`state-machine.ts`** holds the transition tables from SRS §5 as data:
@@ -413,10 +415,12 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 │       │   │   ├── zones/  fares/  rides/  drivers/  pools/  wallet/  audit/  health/
 │       │   └── jobs/expire-requests.ts
 │       ├── test/
-│       │   ├── unit/                # domain/* (no DB)
-│       │   ├── integration/         # Supertest against app.ts + real Postgres
-│       │   ├── concurrency/         # parallel accept / cancel races (TC-06, TC-17, TC-18)
-│       │   └── helpers/             # persona factories: nusrat(), rafiq(), shirin(), jashimWithBullet()
+│       │   ├── domain/              # unit tests of domain/* (no DB)
+│       │   ├── db/                  # constraints, triggers, seed, transaction helpers
+│       │   ├── auth/  zones/  fares/ …  # one folder per module: Supertest against app.ts + real Postgres,
+│       │   │                        # including parallel accept / cancel races (TC-06, TC-17, TC-18)
+│       │   ├── setup/               # migrate + seed zones once per run
+│       │   └── helpers/             # createPersonas(), signInAs(), resetDatabase(), record builders
 │       └── Dockerfile
 ├── packages/
 │   └── shared/                      # Zod schemas, enums, transition tables, money formatting, DTO types
