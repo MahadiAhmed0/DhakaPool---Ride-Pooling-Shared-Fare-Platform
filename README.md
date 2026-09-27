@@ -27,11 +27,12 @@ A full-stack MVP for sharing Dhaka's three-wheeled Teslas. Passengers request a 
 12. [API overview](#api-overview)
 13. [Business rules](#business-rules)
 14. [Concurrency: the last-seat problem](#concurrency-the-last-seat-problem)
-15. [Key decisions and trade-offs](#key-decisions-and-trade-offs)
-16. [AI usage](#ai-usage)
-17. [Known limitations](#known-limitations)
-18. [Next improvements](#next-improvements)
-19. [Deployment](#deployment)
+15. [Scaling to 1M passengers and 100k drivers](#scaling-to-1m-passengers-and-100k-drivers)
+16. [Key decisions and trade-offs](#key-decisions-and-trade-offs)
+17. [AI usage](#ai-usage)
+18. [Known limitations](#known-limitations)
+19. [Next improvements](#next-improvements)
+20. [Deployment](#deployment)
 
 ---
 
@@ -145,22 +146,181 @@ Fifteen tables. A **ride request** belongs to one passenger; a **pool** is one T
 
 ```mermaid
 erDiagram
+    users ||--o{ sessions : "signs in with"
     users ||--o| driver_profiles : "is a driver"
     users ||--o| wallets : "owns (passenger)"
-    users ||--o{ ride_requests : "requests"
+    users ||--o{ ride_requests : "requests (passenger)"
     driver_profiles ||--|| vehicles : "owns one Tesla"
     driver_profiles ||--o{ pools : "drives"
+    vehicles ||--o{ pools : "used for"
+    zones ||--o{ zone_distances : "from / to"
+    zones ||--o{ zone_adjacency : "neighbours"
+    zones ||--o{ ride_requests : "pickup / destination"
+    zones ||--o{ pools : "pickup"
+    zones |o--o{ driver_profiles : "current zone"
     pools ||--|{ pool_members : "contains"
     ride_requests ||--o{ pool_members : "assigned through"
     ride_requests ||--o{ fares : "charged"
     fares ||--o| payments : "settled by"
     wallets ||--o{ wallet_transactions : "ledger"
-    zones ||--o{ ride_requests : "pickup / destination"
-    zones ||--o{ zone_distances : "from / to"
-    zones ||--o{ zone_adjacency : "neighbours"
+    wallet_transactions |o--o| payments : "funds"
+    ride_requests |o--o{ wallet_transactions : "relates to"
+    users |o--o{ status_history : "acted (actor)"
+
+    users {
+        uuid id PK
+        varchar full_name
+        varchar email UK "stored lower-case"
+        varchar phone UK
+        varchar password_hash "bcrypt"
+        user_role role "PASSENGER or DRIVER"
+        gender gender "FEMALE, MALE, PREFER_NOT_TO_SAY"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    sessions {
+        uuid id PK
+        uuid user_id FK
+        char token_hash UK "SHA-256 of cookie token"
+        timestamptz expires_at
+        timestamptz last_seen_at
+        timestamptz revoked_at "null means active"
+        timestamptz created_at
+    }
+    driver_profiles {
+        uuid user_id PK, FK
+        driver_availability availability "ONLINE or OFFLINE"
+        varchar current_zone_code FK "required when ONLINE"
+        timestamptz updated_at
+    }
+    vehicles {
+        uuid id PK
+        uuid driver_id FK, UK "one Tesla per driver"
+        varchar name "Bullet"
+        varchar plate UK
+        smallint capacity "CHECK 1 to 6"
+        timestamptz created_at
+    }
+    zones {
+        varchar code PK "BAN, GL1, MHK ..."
+        varchar name
+        numeric lat
+        numeric lng
+    }
+    zone_distances {
+        varchar from_zone_code PK, FK
+        varchar to_zone_code PK, FK
+        int distance_m "CHECK > 0"
+    }
+    zone_adjacency {
+        varchar zone_code PK, FK
+        varchar adjacent_zone_code PK, FK
+    }
+    ride_requests {
+        uuid id PK
+        uuid passenger_id FK
+        varchar pickup_zone_code FK
+        varchar destination_zone_code FK
+        smallint seats "CHECK 1 to 6"
+        boolean pool_opt_in
+        boolean same_gender_only "requires pool_opt_in"
+        payment_method payment_method
+        ride_status status
+        bigint estimated_fare_paisa "solo estimate"
+        timestamptz requested_at
+        timestamptz expires_at
+        varchar cancel_reason
+        timestamptz cancelled_at
+        timestamptz completed_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    pools {
+        uuid id PK
+        uuid driver_id FK
+        uuid vehicle_id FK
+        varchar pickup_zone_code FK
+        pool_status status
+        smallint capacity "snapshot of vehicle capacity"
+        smallint occupied_seats "CHECK 0 to capacity"
+        boolean is_private "first member opted out"
+        gender_restriction gender_restriction "NONE, FEMALE_ONLY, MALE_ONLY"
+        varchar cancel_reason
+        timestamptz created_at
+        timestamptz arrived_at
+        timestamptz started_at
+        timestamptz completed_at
+        timestamptz cancelled_at
+        timestamptz updated_at
+    }
+    pool_members {
+        uuid id PK
+        uuid pool_id FK
+        uuid ride_request_id FK
+        smallint seats
+        timestamptz joined_at
+        timestamptz left_at "set if removed before start"
+        smallint dropoff_order
+        timestamptz dropped_off_at
+    }
+    fares {
+        uuid id PK
+        uuid ride_request_id FK
+        charge_type type "RIDE or CANCELLATION_FEE"
+        int base_paisa
+        int distance_m
+        int per_km_paisa
+        bigint distance_charge_paisa
+        int discount_bps
+        bigint discount_paisa
+        smallint seats
+        boolean pooled
+        bigint total_paisa
+        timestamptz locked_at
+    }
+    payments {
+        uuid id PK
+        uuid fare_id FK, UK
+        uuid ride_request_id FK
+        payment_method method
+        payment_status status
+        bigint amount_paisa
+        uuid wallet_transaction_id FK, UK
+        uuid collected_by_id FK "driver who took cash"
+        timestamptz paid_at
+        timestamptz created_at
+    }
+    wallets {
+        uuid id PK
+        uuid passenger_id FK, UK
+        bigint balance_paisa "CHECK >= 0"
+        timestamptz updated_at
+    }
+    wallet_transactions {
+        uuid id PK
+        uuid wallet_id FK
+        wallet_txn_type type
+        bigint amount_paisa "signed, never 0"
+        bigint balance_after_paisa
+        uuid ride_request_id FK
+        varchar reason "e.g. SEED opening balance"
+        timestamptz created_at
+    }
+    status_history {
+        bigint id PK "auto-increment: total order"
+        audit_entity entity_type
+        uuid entity_id "polymorphic, no FK"
+        varchar from_status
+        varchar to_status
+        uuid actor_user_id FK
+        actor_role actor_role
+        varchar reason
+        jsonb metadata
+        timestamptz created_at
+    }
 ```
 
-Money is always integer **paisa** (1 taka = 100 paisa) in 64-bit columns; distances are integer metres. The full diagram, table dictionary, constraints and indexes are in [ERD.md](docs/ERD.md).
+Money is always integer **paisa** (1 taka = 100 paisa) in 64-bit columns; distances are integer metres. The table dictionary, every integrity constraint and where it lives, the indexes and a worked data example are in [ERD.md](docs/ERD.md).
 
 ## Tech stack and why
 
@@ -339,15 +499,109 @@ Bullet has one free seat. Nusrat and Shirin are both accepted at the same instan
 
 Transactions are short (no network calls inside), `lock_timeout` is 3 s, and PostgreSQL's default READ COMMITTED isolation is enough because every decision is made after taking the lock. The concurrency tests run each race 20 times over real HTTP, with fresh data every time.
 
-**At larger scale.** One database and row locks are right for this MVP, but a city-wide service would change:
-- give each trip a single writer by partitioning matching per pickup zone or geo cell, instead of relying on lock contention;
-- add idempotency keys to every command, so retries are safe;
-- move matching to geo-indexed search (H3 cells or PostGIS);
-- serve history from read replicas and cache reference data;
-- replace polling with push (WebSockets or SSE);
-- run the expiry sweep as one scheduled job instead of one per API instance.
+**At larger scale.** One database and row locks are the right choice for this MVP. The next section sets out what a city-wide service would change, and why the transactional core stays as it is.
 
-The full reasoning for 1M passengers and 100k drivers (load estimate, target architecture, and each topic from load balancing to deployment) is in [docs/SCALING.md](docs/SCALING.md).
+## Scaling to 1M passengers and 100k drivers
+
+The MVP is one PostgreSQL database behind one Express process, which is the right shape for the traffic it has. These figures set the order of magnitude that drives every change below; the working is in [SCALING.md](docs/SCALING.md).
+
+| At peak | Estimate |
+|---|---|
+| Ride requests | ~13 per second |
+| Status polling at today's 4 s interval | ~15,000 requests per second |
+| Driver location updates, once GPS is added | ~8,000 writes per second |
+
+**The shape of the problem.** The business writes are tiny: a dozen requests and a few dozen accepts per second, which one PostgreSQL primary handles comfortably. Almost all the load is live status reads and driver locations, and neither needs the transactional core. So the work is to move that traffic off the database and to remove lock contention at busy pickups, not to shard the ledger.
+
+```mermaid
+flowchart LR
+    subgraph clients["Clients"]
+        PA["Passenger app"]
+        DA["Driver app"]
+    end
+
+    CDN["CDN<br/>static web assets"]
+    LB["Edge: load balancer and API gateway<br/>TLS · WAF · routing<br/>session auth · rate limits per user and IP<br/>idempotency keys"]
+
+    subgraph stateless["Stateless API instances, scaled on p95 latency"]
+        RIDE["Ride service<br/>estimate · request · cancel"]
+        POOL["Pool service<br/>arrive · start · drop off · cash"]
+        WAL["Wallet service<br/>top up · settle at drop-off"]
+        LOC["Location service<br/>position ingest"]
+    end
+
+    subgraph matchers["Matching, partitioned by pickup cell"]
+        M1["Matcher: cells A to F<br/>single writer per cell"]
+        M2["Matcher: cells G to L"]
+    end
+
+    RT["Realtime gateway<br/>WebSocket or SSE push"]
+    NOTIF["Notification service<br/>APNs · FCM"]
+    OBS["Observability<br/>metrics · traces · logs · SLOs"]
+
+    GEO[("Geo index<br/>driver positions by H3 cell<br/>in memory, not durable")]
+    CACHE[("Shared cache<br/>sessions · zones · adjacency<br/>fare rates · rate-limit counters")]
+    PGB["Connection pooler"]
+    PG[("PostgreSQL primary<br/>rides · pools · fares · payments · ledger<br/>CHECK constraints · partial unique indexes")]
+    RR[("Read replicas<br/>ride and trip history · wallet statements")]
+    OUT[["Outbox relay to event log<br/>ride · pool · payment events"]]
+
+    PA --> CDN
+    DA --> CDN
+    PA -- "requestRide · cancelRide · topUp" --> LB
+    DA -- "goOnline · acceptRequest · arrive · start · dropOff" --> LB
+    DA -- "updateLocation every 5 s" --> LB
+    LB --> RIDE
+    LB --> POOL
+    LB --> WAL
+    LB --> LOC
+    LOC --> GEO
+    RIDE -- "enqueue on its cell" --> M1
+    RIDE --> M2
+    M1 -- "candidate drivers" --> GEO
+    M2 --> GEO
+    M1 -- "one transaction per accept" --> PGB
+    M2 --> PGB
+    RIDE --> PGB
+    POOL --> PGB
+    WAL --> PGB
+    PGB --> PG
+    RIDE -- "history, statements" --> RR
+    PG -- "streaming replication" --> RR
+    RIDE --> CACHE
+    POOL --> CACHE
+    LB --> CACHE
+    PG -- "outbox row, same transaction" --> OUT
+    OUT --> RT
+    OUT --> NOTIF
+    OUT --> OBS
+    RT -- "your ride changed" --> PA
+    RT --> DA
+    NOTIF -- "new request nearby" --> DA
+```
+
+**How each concern is handled.**
+
+| Concern | At scale | Why |
+|---|---|---|
+| Load balancing | One entry point terminating TLS, with a WAF, spreading traffic across API instances | Instances scale on CPU and latency, and abusive traffic is filtered before it costs a database connection |
+| Horizontal scaling | Move the two in-memory items, the rate-limit counters and the zone cache, into the shared cache | They are the only reason an API instance is not already interchangeable |
+| Database indexing | Every list and lookup path is indexed today ([ERD §5](docs/ERD.md)); `status_history` and `wallet_transactions` are partitioned by month | They become the largest tables, and old partitions can then be archived without touching hot data |
+| Read replicas | History and wallet statements read from replicas; commands and a passenger's active ride stay on the primary | Those reads tolerate a second of lag, but a command must read its own writes |
+| Caching | Zones, adjacency, fare rates and sessions cached with the version in the key. Seat counts and ride state are never cached for a command | A stale seat count is precisely the bug the design exists to prevent |
+| Geospatial search | H3 cells replace fixed zones, so "nearby" becomes the same cell or a neighbouring ring, and positions live in an in-memory geo index | 8,000 position writes per second have no business in the transactional database |
+| Ride matching | One matcher per pickup cell, so every decision about a trip is made by one process in order, with automatic dispatch replacing the manual feed | Single writer converts lock contention into ordering, and 40,000 online drivers cannot scan a shared feed |
+| Database contention | Contention is local to one trip's rows; the single writer removes the waits, and a connection pooler keeps connections bounded | Row locks stay correct at any scale; what grows is waiting, not wrongness |
+| Queues and events | Each commit writes an outbox row in the same transaction, relayed to an event log consumed by push, notifications and analytics | Keeps "the database changed" and "the event was sent" consistent with no distributed transaction, and no consumer sits on the command path |
+| Real-time communication | A push gateway fed by the event log sends each passenger only their own ride's changes; polling stays as the fallback on poor networks | This is the 15,000 requests per second, and it disappears |
+| Rate limiting | Limits at the edge in a shared store, keyed by user as well as IP, strict on sign-in and ride creation | Credential stuffing and request spam are the paths worth paying to block |
+| Idempotency | Every command carries an idempotency key; the first result is stored against it and replayed on retry | A retried accept or top-up on a flaky mobile network must not act twice |
+| Retry and failure | Automatic retry only for lock timeouts, connection resets and matcher queue work, with back-off, jitter and circuit breakers around routing and payments | Business refusals such as 409 and 422 are decisions, not failures, so retrying them is wrong |
+| Observability | Metrics including lock waits and matcher queue depth, traces across API, matcher and database, and SLOs on time to match and p95 command latency | Alerts fire on what a passenger feels, not on raw CPU |
+| Security | Sessions unchanged, WAF at the edge, secrets in a managed store with rotation, personal data minimised and encrypted at rest, card data kept outside the API's PCI scope | The threat model grows with the user count, and the session design already survives it |
+| Deployment | Managed containers with health checks, rolling deploys and automatic rollback; expand-and-contract migrations; feature flags per city area | No migration may lock a hot table, and new matching behaviour is proven in one area first |
+
+**What does not change.** The two state machines, the fare formula in integer paisa fixed at trip start, one transaction per business command, and the database constraints as the last line of defence. Matching by single writer removes the lock waits, but if two matchers ever disagreed, the seat CHECK constraint and the partial unique indexes would still refuse the second write. [SCALING.md](docs/SCALING.md) has the load working, the detail behind each topic, and the order in which these steps are taken, each triggered by a measurement rather than a date.
 
 ## Key decisions and trade-offs
 
