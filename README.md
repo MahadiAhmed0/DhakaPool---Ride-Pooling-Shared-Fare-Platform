@@ -1,4 +1,4 @@
-# Dhaka Tesla Pool — Ride Pooling & Shared Fares
+# Dhaka Tesla Pool: Ride Pooling & Shared Fares
 
 A full-stack MVP for sharing Dhaka's three-wheeled Teslas. Passengers request a ride between city zones and may share it; drivers accept compatible requests into one trip without ever exceeding their Tesla's seats; every passenger pays an individual, hand-checkable fare. Built with Next.js, an Express + TypeScript API and PostgreSQL, and run with one Docker Compose command.
 
@@ -28,9 +28,10 @@ A full-stack MVP for sharing Dhaka's three-wheeled Teslas. Passengers request a 
 13. [Business rules](#business-rules)
 14. [Concurrency: the last-seat problem](#concurrency-the-last-seat-problem)
 15. [Key decisions and trade-offs](#key-decisions-and-trade-offs)
-16. [Known limitations](#known-limitations)
-17. [Next improvements](#next-improvements)
-18. [Deployment](#deployment)
+16. [AI usage](#ai-usage)
+17. [Known limitations](#known-limitations)
+18. [Next improvements](#next-improvements)
+19. [Deployment](#deployment)
 
 ---
 
@@ -106,16 +107,16 @@ Every seeded persona uses the demo password **`TeslaPool#2026`** (set by `SEED_D
 
 ## Architecture
 
-A modular monolith: one Next.js web app, one Express API and one PostgreSQL database ([ADR-0001](docs/adr/0001-modular-monolith.md)). Every rule that matters — capacity, transitions, wallet balance — needs one ACID transaction, so splitting services would add distributed consistency without solving a real problem.
+A modular monolith: one Next.js web app, one Express API and one PostgreSQL database ([ADR-0001](docs/adr/0001-modular-monolith.md)). Every rule that matters (capacity, transitions, wallet balance) needs one ACID transaction, so splitting services would add distributed consistency without solving a real problem.
 
 ```mermaid
 flowchart LR
     B["Browser<br/>(mobile / desktop)"]
-    subgraph WEB["web — Next.js App Router"]
+    subgraph WEB["web: Next.js App Router"]
         UI["Pages & components<br/>TanStack Query (polling)"]
         PX["/api/* rewrite proxy"]
     end
-    subgraph API["api — Express 5 + TypeScript"]
+    subgraph API["api: Express 5 + TypeScript"]
         MW["Middleware<br/>request-id · logger · helmet ·<br/>session auth · role guard · Zod validation · rate limit"]
         MOD["Modules<br/>auth · zones · fares · rides · drivers · pools · wallet · audit"]
         DOM["Pure domain layer<br/>fare · matching · state machine · money"]
@@ -323,13 +324,13 @@ Trip:  OPEN → DRIVER_ARRIVED → STARTED → COMPLETED   (or CANCELLED before 
 
 **Payment.** TeslaPay is debited at drop-off; if the balance is short, the ride falls back to cash. Cash rides stay *cash due* until the driver records the collection.
 
-**Assumptions** are listed with their reasons in [SRS §13.1](docs/SRS.md#131-assumptions-register) — for example, pickup is the zone itself (A-02), and gender is optional, self-declared and never shown to co-riders (A-19, A-20).
+**Assumptions** are listed with their reasons in [SRS §13.1](docs/SRS.md#131-assumptions-register). For example, pickup is the zone itself (A-02), and gender is optional, self-declared and never shown to co-riders (A-19, A-20).
 
 ## Concurrency: the last-seat problem
 
 Bullet has one free seat. Nusrat and Shirin are both accepted at the same instant, and both requests first see one seat available. Exactly one must succeed.
 
-**Now — four layers, all inside one PostgreSQL transaction** ([ADR-0006](docs/adr/0006-concurrency-row-locks-cas-constraints.md)):
+**Now: four layers, all inside one PostgreSQL transaction** ([ADR-0006](docs/adr/0006-concurrency-row-locks-cas-constraints.md)):
 
 1. **Serialise.** The accept locks the driver row and then the trip row (`SELECT … FOR UPDATE`). The second accept waits, then re-reads the seats and is refused with `CAPACITY_EXCEEDED`. Locks are always taken in the order driver → pool → ride → wallet, so two commands can never deadlock.
 2. **Compare-and-set.** A status change is `UPDATE … WHERE id = ? AND status = ?` and must touch exactly one row, so a cancel racing an accept, or two drivers accepting the same request, cannot both win.
@@ -346,7 +347,7 @@ Transactions are short (no network calls inside), `lock_timeout` is 3 s, and Pos
 - replace polling with push (WebSockets or SSE);
 - run the expiry sweep as one scheduled job instead of one per API instance.
 
-The full reasoning for 1M passengers and 100k drivers — load estimate, target architecture, and each topic from load balancing to deployment — is in [docs/SCALING.md](docs/SCALING.md).
+The full reasoning for 1M passengers and 100k drivers (load estimate, target architecture, and each topic from load balancing to deployment) is in [docs/SCALING.md](docs/SCALING.md).
 
 ## Key decisions and trade-offs
 
@@ -363,6 +364,28 @@ The full reasoning for 1M passengers and 100k drivers — load estimate, target 
 | Driver accepts each request explicitly | Automatic dispatch | Matches the brief ("accept a ride/pool") and keeps the driver in control |
 
 All decisions and their alternatives are logged in [SRS §13.2](docs/SRS.md#132-decisions-log) and the [ADRs](docs/adr/README.md).
+
+## AI usage
+
+Generative AI was used as a drafting and review tool throughout this project. Every design decision was made by the developer, and every change that reached `master` was read, run and committed by hand.
+
+| Tool | Used for |
+|---|---|
+| **Claude Sonnet 5** | Planning the phased delivery; drafting the SRS, the architecture document, the ERD, the ADRs and this README; checking requirement traceability against the tracker |
+| **OpenCode (DeepSeek v4 Pro)** | Writing the application code: the API modules, the web app and the test suite |
+
+**How the output was kept honest.**
+
+- Every business rule in the code cites the SRS ID it implements, so any generated line can be traced back to a stated requirement. Anything that matched no requirement was removed rather than kept because it looked plausible.
+- `npm run lint && npm run typecheck && npm test` passed before each commit. The suite runs against a real PostgreSQL database ([ADR-0011](docs/adr/0011-testing-vitest-supertest-real-postgres.md)), because locks and constraints are exactly the part that cannot be taken on trust.
+- The lint limits in [`eslint.simplicity.mjs`](eslint.simplicity.mjs) allow 200 lines a file, 50 a function, complexity 8 and no `any`, which keeps every file small enough to review in one sitting.
+- The history is a sequence of small, single-purpose commits, so each step can be read and judged on its own.
+
+**A suggestion that was accepted.** The layered defence against the last-seat race in [ADR-0006](docs/adr/0006-concurrency-row-locks-cas-constraints.md): a fixed lock order (driver → pool → ride → wallet) to make deadlock impossible, compare-and-set status updates so a race cannot produce two winners, and database CHECK constraints and partial unique indexes as a backstop if the application code were ever wrong. It was adopted in full, and `test/pools/concurrency.test.ts` runs each race twenty times over real HTTP to prove it.
+
+**A suggestion that was rejected.** Drizzle ORM was recommended for data access, on the grounds that it expresses row locks, CHECK constraints and partial indexes in its own schema. Prisma was chosen instead: its migrations, generated types and seeding were the better fit, and the four gaps Drizzle would have covered natively are closed explicitly in [`db/lock.ts`](apps/api/src/db/lock.ts) and one hand-written SQL migration, visible in the repository rather than buried in an abstraction. Both options and the trade-off are recorded in [ADR-0004](docs/adr/0004-prisma-with-hand-written-integrity-sql.md).
+
+**A recommendation that had to change.** Railway was planned for the API in [ADR-0009](docs/adr/0009-docker-first-deployment.md), but its free plan grants only a dollar of credit a month, which cannot keep a service running. The documented fallback, Render, is what the hosted demo uses.
 
 ## Known limitations
 
@@ -389,7 +412,7 @@ Docker Compose runs the full stack anywhere (see [Quick start](#quick-start-dock
 
 Railway was the first choice in ADR-0009, but its free plan ($1 of credit a month) cannot keep a service running, so the API uses the documented fallback, Render.
 
-**1. Database — Supabase.** Create a project in the *Southeast Asia (Singapore)* region and note the database password. Under **Connect**, copy the **Session pooler** connection string (IPv4; Render has no IPv6, so the direct connection cannot be used). From it make two values:
+**1. Database: Supabase.** Create a project in the *Southeast Asia (Singapore)* region and note the database password. Under **Connect**, copy the **Session pooler** connection string (IPv4; Render has no IPv6, so the direct connection cannot be used). From it make two values:
 
 ```text
 DATABASE_URL = postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres?sslmode=no-verify
@@ -398,8 +421,8 @@ DIRECT_URL   = postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgre
 
 The app connects through node-postgres, which reads `sslmode=require` as "verify the certificate" and would reject Supabase's; `no-verify` keeps the connection encrypted. Migrations run through Prisma, which accepts `sslmode=require`.
 
-**2. API — Render.** *New → Blueprint*, connect this repository and choose the branch to deploy (`release/v1.0.0` for the release). Render reads `render.yaml` and asks for the secret values: `DATABASE_URL`, `DIRECT_URL`, `SEED_DEMO_PASSWORD` (`TeslaPool#2026`, no quotes in the dashboard) and `WEB_ORIGIN` (the Vercel address from step 3; enter a placeholder first and update it afterwards). On start the container migrates and seeds the database. Check `https://<api-name>.onrender.com/health`.
+**2. API: Render.** *New → Blueprint*, connect this repository and choose the branch to deploy (`release/v1.0.0` for the release). Render reads `render.yaml` and asks for the secret values: `DATABASE_URL`, `DIRECT_URL`, `SEED_DEMO_PASSWORD` (`TeslaPool#2026`, no quotes in the dashboard) and `WEB_ORIGIN` (the Vercel address from step 3; enter a placeholder first and update it afterwards). On start the container migrates and seeds the database. Check `https://<api-name>.onrender.com/health`.
 
-**3. Web — Vercel.** *Add New → Project*, import this repository, and set **Root Directory** to `apps/web`. Add the environment variable `API_INTERNAL_URL = https://<api-name>.onrender.com` for all environments before the first build, because the `/api` rewrite is fixed at build time. Deploy, then put the Vercel address into `WEB_ORIGIN` on Render and redeploy the API.
+**3. Web: Vercel.** *Add New → Project*, import this repository, and set **Root Directory** to `apps/web`. Add the environment variable `API_INTERNAL_URL = https://<api-name>.onrender.com` for all environments before the first build, because the `/api` rewrite is fixed at build time. Deploy, then put the Vercel address into `WEB_ORIGIN` on Render and redeploy the API.
 
 **Before a demo.** Free services sleep: open the API's `/health` first and wait for `{"status":"ok","db":"up"}` (Render needs about a minute to wake after 15 idle minutes). A Supabase project pauses after a week without activity and is resumed from its dashboard.
