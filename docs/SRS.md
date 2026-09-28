@@ -8,7 +8,7 @@
 | Standard | ISO/IEC/IEEE 29148:2018 — Software Requirements Specification (tailored for an MVP) |
 | Product | Dhaka Tesla Pool — ride-pooling & shared-fare platform (MVP) |
 | Source brief | *Dhaka Tesla Pool PRD — Internship Challenge* (RoBenDevs) — referenced as **PRD** |
-| Version | 0.6 |
+| Version | 0.7 |
 | Status | Baselined for release v1.0.0 |
 | Author | Golam Mahadi Ahmed |
 | Traceability workbook | [`DhakaPool_SRS_Tracker.xlsx`](DhakaPool_SRS_Tracker.xlsx) |
@@ -23,6 +23,7 @@
 | 0.4 | 2026-09-24 | Golam Mahadi Ahmed | Decision D-25: neo-brutalist visual style for the web app (ADR-0013). No requirement changed. |
 | 0.5 | 2026-09-25 | Golam Mahadi Ahmed | Baselined for release v1.0.0. No requirement changed. Implementation status and verification evidence for every requirement are in the traceability workbook; ADR-0001…0013 are Accepted. |
 | 0.6 | 2026-09-28 | Golam Mahadi Ahmed | Added FR-AUTH-08: the sign-up form confirms the password and can reveal it. §8.1 sign-up screen updated. No API contract changed. |
+| 0.7 | 2026-09-28 | Golam Mahadi Ahmed | FR-AUTH-08 extended to every password field, so sign-in can reveal its password too. §8.1 sign-in screen updated. |
 
 ---
 
@@ -222,7 +223,7 @@ The full register is in §13.1. The ones with the most impact:
 | FR-AUTH-05 | The frontend shall route users to the dashboard for their role and block access to the other role's pages. | M | 3 | A passenger who opens a driver URL is redirected or sees 403. The API enforces the same rule (NFR-SEC-03). |
 | FR-AUTH-06 | Driver accounts, each linked to exactly one Tesla, shall be provisioned by seed data. | M | 3, 6 | After seeding, Jashim can sign in and sees Bullet (capacity 3). |
 | FR-AUTH-07 | The system may allow driver self-registration with vehicle details. | W | 3 | Not in MVP (A-05). |
-| FR-AUTH-08 | The sign-up form shall ask for the password twice and refuse to submit while the two entries differ, and shall let the user reveal or hide either entry. The confirmation is checked in the browser and is never sent to the API. | S | 6 | Differing entries show a field error and no request is made. Revealing one entry leaves the other hidden. The sign-up request carries the account fields only. |
+| FR-AUTH-08 | Every password field shall let the user reveal or hide what they have typed, on both the sign-in and the sign-up form. The sign-up form shall also ask for the password twice and refuse to submit while the two entries differ; the confirmation is checked in the browser and is never sent to the API. | S | 6 | Each field starts hidden, and revealing one leaves any other hidden. Differing entries show a field error and no request is made. The sign-up request carries the account fields only. |
 
 ### 4.2 Passenger ride requests (PAX)
 
@@ -501,7 +502,7 @@ This section is the conceptual data model. The physical model, with column types
 | Screen | Role | Must show / allow | States |
 |---|---|---|---|
 | Sign up | Passenger | Name, phone, e-mail, password and its confirmation, each able to be revealed (FR-AUTH-08), optional gender (noting it is used only for matching); field errors | submitting, error |
-| Sign in | Both | E-mail/phone, password; demo credentials hint in non-production | submitting, error |
+| Sign in | Both | E-mail/phone, password able to be revealed (FR-AUTH-08); demo credentials hint in non-production | submitting, error |
 | Request a ride | Passenger | Pickup and destination zone selectors, seats, "Share my ride" toggle, "Same-gender co-riders only" toggle (shown only when a gender is declared), payment method, live estimate (solo and pooled) | loading zones, estimating, error, disabled while an active ride exists |
 | Current ride | Passenger | Status stepper or timeline, driver and Tesla, shared indicator and co-rider count, fare (estimate or locked, with breakdown), cancel button with fee warning | loading, no active ride (empty), error, polling |
 | Ride history & detail | Passenger | List plus a detail page with timeline and breakdown | loading, empty, error |
