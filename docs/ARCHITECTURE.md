@@ -3,9 +3,9 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 1.0 |
+| Version | 1.1 |
 | Author | Golam Mahadi Ahmed |
-| Implements | [SRS DTP-SRS-001 v0.5](SRS.md) |
+| Implements | [SRS DTP-SRS-001 v0.6](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
 
 | Version | Date | Change |
@@ -24,6 +24,7 @@
 | 0.12 | 2026-09-25 | Synced with the driver UI: driver query hooks and 4 s refresh of the feed and the active pool, buttons from the shared transition tables via `lib/driver-moves.ts`, one command hook per trip button, Cash collected also in the trip history |
 | 0.13 | 2026-09-25 | Hosting as configured: Render instead of Railway (free plan cannot run a service), Supabase session pooler, `render.yaml` and `apps/web/vercel.json`, `TRUST_PROXY_HOPS`, migrations over `DIRECT_URL` |
 | 1.0 | 2026-09-25 | Release baseline for v1.0.0: implements SRS v0.5; ADR-0001…0013 Accepted; the implementation matches this document |
+| 1.1 | 2026-09-28 | Implements SRS v0.6: the sign-up form confirms and can reveal the password (FR-AUTH-08). No architectural change |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
