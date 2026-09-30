@@ -4,8 +4,9 @@ A full-stack MVP for sharing Dhaka's three-wheeled Teslas. Passengers request a 
 
 | | |
 |---|---|
-| **Demo video** | _Link added with the v1.0.0 release_ |
-| **Deployment** | _See [Deployment](#deployment)_ |
+| **Live demo** | **<https://dhakapool-web.vercel.app/>** · sign in with the [demo accounts](#demo-accounts) |
+| **Demo video** | [Watch the walkthrough](https://drive.google.com/drive/folders/17gr208ltawDP9jgigAe7KKQ-HSRXLY1L?usp=sharing) |
+| **Deployment** | Vercel · Railway · Supabase ([how it is set up](#deployment)) |
 | **Requirements** | [SRS](docs/SRS.md) · [traceability workbook](docs/DhakaPool_SRS_Tracker.xlsx) |
 | **Design** | [Architecture](docs/ARCHITECTURE.md) · [ERD](docs/ERD.md) · [ADRs](docs/adr/README.md) · [Coding conventions](docs/CODING_CONVENTIONS.md) · [Scaling notes](docs/SCALING.md) |
 
@@ -15,24 +16,25 @@ A full-stack MVP for sharing Dhaka's three-wheeled Teslas. Passengers request a 
 
 1. [The problem](#the-problem)
 2. [Features](#features)
-3. [Quick start (Docker)](#quick-start-docker)
-4. [Demo accounts](#demo-accounts)
-5. [Architecture](#architecture)
-6. [Data model](#data-model)
-7. [Tech stack and why](#tech-stack-and-why)
-8. [Project structure](#project-structure)
-9. [Local development](#local-development)
-10. [Environment variables](#environment-variables)
-11. [Tests](#tests)
-12. [API overview](#api-overview)
-13. [Business rules](#business-rules)
-14. [Concurrency: the last-seat problem](#concurrency-the-last-seat-problem)
-15. [Scaling to 1M passengers and 100k drivers](#scaling-to-1m-passengers-and-100k-drivers)
-16. [Key decisions and trade-offs](#key-decisions-and-trade-offs)
-17. [AI usage](#ai-usage)
-18. [Known limitations](#known-limitations)
-19. [Next improvements](#next-improvements)
-20. [Deployment](#deployment)
+3. [Screenshots](#screenshots)
+4. [Quick start (Docker)](#quick-start-docker)
+5. [Demo accounts](#demo-accounts)
+6. [Architecture](#architecture)
+7. [Data model](#data-model)
+8. [Tech stack and why](#tech-stack-and-why)
+9. [Project structure](#project-structure)
+10. [Local development](#local-development)
+11. [Environment variables](#environment-variables)
+12. [Tests](#tests)
+13. [API overview](#api-overview)
+14. [Business rules](#business-rules)
+15. [Concurrency: the last-seat problem](#concurrency-the-last-seat-problem)
+16. [Scaling to 1M passengers and 100k drivers](#scaling-to-1m-passengers-and-100k-drivers)
+17. [Key decisions and trade-offs](#key-decisions-and-trade-offs)
+18. [AI usage](#ai-usage)
+19. [Known limitations](#known-limitations)
+20. [Next improvements](#next-improvements)
+21. [Deployment](#deployment)
 
 ---
 
@@ -70,7 +72,43 @@ Dhaka Tesla Pool lets them share Bullet safely:
 - Optional women-only / men-only trips.
 - Every status change is written to an append-only audit trail.
 
-![Sign-in page in the neo-brutalist style](docs/screenshots/sign-in.png)
+## Screenshots
+
+Captured from the running stack with the seeded personas: Jashim driving **Bullet**, with Nusrat and Rafiq sharing it from Banani.
+
+**Signing in**
+
+| | |
+|---|---|
+| ![Sign in](docs/screenshots/sign-in.png) | ![Sign up](docs/screenshots/sign-up.png) |
+| Sign in with an e-mail or a phone number. Outside production the page also lists the demo personas | Sign up, with gender optional and self-declared |
+
+**Passenger**
+
+| | |
+|---|---|
+| ![Requesting a ride](docs/screenshots/request-a-ride.png) | ![Waiting to be matched](docs/screenshots/finding-a-tesla.png) |
+| Request a ride: zones, seats, sharing, same-gender and payment, with both prices shown before committing | Waiting for a Tesla, with the request's own expiry in view |
+| ![Following the ride](docs/screenshots/ride-tracker.png) | ![Ride history](docs/screenshots/ride-history.png) |
+| Following the ride: driver, Tesla, plate and co-rider count, never a co-rider's name | History, newest first, a page at a time |
+| ![Ride detail with fare breakdown](docs/screenshots/ride-detail.png) | ![TeslaPay wallet](docs/screenshots/wallet.png) |
+| The fare, checkable by hand: ৳30 base plus ৳45 distance less the ৳9 shared-ride discount, with the full timeline | TeslaPay: balance, simulated top-up and the statement behind it |
+
+**Driver**
+
+| | |
+|---|---|
+| ![Driver dashboard](docs/screenshots/driver-dashboard.png) | ![Waiting requests](docs/screenshots/driver-requests.png) |
+| Bullet's card with the online toggle and zone, locked while a trip is under way | Only the requests that fit Bullet and can join the current trip |
+| ![Active trip](docs/screenshots/driver-pool.png) | ![Trip history](docs/screenshots/driver-history.png) |
+| The trip: two of three seats taken, one row per passenger, and only the actions the state machine allows | Past trips with each passenger's fare and payment |
+
+**At 390 px**
+
+| | |
+|---|---|
+| ![Ride tracking on a phone](docs/screenshots/mobile-ride-tracker.png) | ![Trip management on a phone](docs/screenshots/mobile-driver-pool.png) |
+| Following a ride | Managing a trip |
 
 ## Quick start (Docker)
 
@@ -401,7 +439,7 @@ All variables are listed with safe defaults in [`.env.example`](.env.example). R
 | `TEST_DATABASE_URL` | `…/dhakapool_test` | Tests only; never the development database |
 | `API_PORT` · `WEB_ORIGIN` · `LOG_LEVEL` | `4000` · `http://localhost:3000` · `info` | API |
 | `SESSION_TTL_HOURS` · `COOKIE_SECURE` · `BCRYPT_COST` | `168` · `false` · `12` | Sessions and password hashing; set `COOKIE_SECURE=true` behind HTTPS |
-| `TRUST_PROXY_HOPS` | `1` | Proxies in front of the API, for per-client rate limits; `2` when hosted behind Vercel and Render |
+| `TRUST_PROXY_HOPS` | `1` | Proxies in front of the API, for per-client rate limits; `2` when hosted behind Vercel and Railway |
 | `SEED_DEMO_PASSWORD` | `"TeslaPool#2026"` | Password of every seeded persona. Keep the quotes: without them Node reads `#` as a comment |
 | `API_INTERNAL_URL` | `http://localhost:4000` | Where the web app forwards `/api/*` (fixed at build time) |
 | `FARE_BASE_PAISA` · `FARE_PER_KM_PAISA` · `FARE_POOL_DISCOUNT_BPS` | `3000` · `1500` · `2000` | Fare rates: ৳30 base, ৳15/km, 20 % pool discount on the distance charge |
@@ -639,7 +677,7 @@ Generative AI was used as a drafting and review tool throughout this project. Ev
 
 **A suggestion that was rejected.** Drizzle ORM was recommended for data access, on the grounds that it expresses row locks, CHECK constraints and partial indexes in its own schema. Prisma was chosen instead: its migrations, generated types and seeding were the better fit, and the four gaps Drizzle would have covered natively are closed explicitly in [`db/lock.ts`](apps/api/src/db/lock.ts) and one hand-written SQL migration, visible in the repository rather than buried in an abstraction. Both options and the trade-off are recorded in [ADR-0004](docs/adr/0004-prisma-with-hand-written-integrity-sql.md).
 
-**A recommendation that had to change.** Railway was planned for the API in [ADR-0009](docs/adr/0009-docker-first-deployment.md), but its free plan grants only a dollar of credit a month, which cannot keep a service running. The documented fallback, Render, is what the hosted demo uses.
+**A recommendation that had to change.** Railway was planned for the API in [ADR-0009](docs/adr/0009-docker-first-deployment.md), but its free plan granted only a dollar of credit a month, which cannot keep a service running, so the documented fallback, Render, was used first. The hosted demo now runs on Railway as ADR-0009 originally planned (amendment below); [`render.yaml`](render.yaml) remains the documented free fallback.
 
 ## Known limitations
 
@@ -656,27 +694,45 @@ Real routing and ETAs with detour-based matching; live GPS; push updates; automa
 
 ## Deployment
 
-Docker Compose runs the full stack anywhere (see [Quick start](#quick-start-docker)). The hosted demo uses three free tiers, with no payment method required ([ADR-0009](docs/adr/0009-docker-first-deployment.md), [ARCHITECTURE §12.2](docs/ARCHITECTURE.md#122-later-free-tier-hosting-nfr-por-04-adr-0009)):
+Docker Compose runs the full stack anywhere (see [Quick start](#quick-start-docker)). The hosted demo uses Vercel, Railway and Supabase ([ADR-0009](docs/adr/0009-docker-first-deployment.md), [ARCHITECTURE §12.2](docs/ARCHITECTURE.md#122-later-free-tier-hosting-nfr-por-04-adr-0009)):
 
 | Part | Host | Configuration |
 |---|---|---|
-| Web app | Vercel (Hobby) | [`apps/web/vercel.json`](apps/web/vercel.json) |
-| API | Render (free web service, same Dockerfile) | [`render.yaml`](render.yaml) |
+| Web app | Vercel (Hobby) | Root Directory `apps/web`, [`apps/web/vercel.json`](apps/web/vercel.json) |
+| API | Railway (same Dockerfile) | `railway up` from the repository root |
 | Database | Supabase (free) | connection strings below |
 
-Railway was the first choice in ADR-0009, but its free plan ($1 of credit a month) cannot keep a service running, so the API uses the documented fallback, Render.
+The demo is live at **<https://dhakapool-web.vercel.app/>**; the API answers on its own Railway address at `/health`.
+`render.yaml` remains the documented free fallback for the API from ADR-0009's guardrail.
 
-**1. Database: Supabase.** Create a project in the *Southeast Asia (Singapore)* region and note the database password. Under **Connect**, copy the **Session pooler** connection string (IPv4; Render has no IPv6, so the direct connection cannot be used). From it make two values:
+**1. Database: Supabase.** Create a project (the demo uses *Seoul, ap-northeast-2*) and note the database password. Under **Connect**, copy the **Session pooler** connection string (IPv4). From it make two values:
 
 ```text
 DATABASE_URL = postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres?sslmode=no-verify
 DIRECT_URL   = postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres?sslmode=require
 ```
 
-The app connects through node-postgres, which reads `sslmode=require` as "verify the certificate" and would reject Supabase's; `no-verify` keeps the connection encrypted. Migrations run through Prisma, which accepts `sslmode=require`.
+The app connects through node-postgres, which reads `sslmode=require` as "verify the certificate" and would reject Supabase's; `no-verify` keeps the connection encrypted. Migrations run through Prisma, which accepts `sslmode=require`. On the free plan the direct connection is IPv6-only, so everything uses the IPv4 session pooler, whose session mode keeps interactive transactions, `SET LOCAL lock_timeout` and `FOR UPDATE` behaving exactly as locally. Apply the migrations and seed once, from the repository root:
 
-**2. API: Render.** *New → Blueprint*, connect this repository and choose the branch to deploy (`release/v1.0.0` for the release). Render reads `render.yaml` and asks for the secret values: `DATABASE_URL`, `DIRECT_URL`, `SEED_DEMO_PASSWORD` (`TeslaPool#2026`, no quotes in the dashboard) and `WEB_ORIGIN` (the Vercel address from step 3; enter a placeholder first and update it afterwards). On start the container migrates and seeds the database. Check `https://<api-name>.onrender.com/health`.
+```bash
+DIRECT_URL=… DATABASE_URL=… SEED_DEMO_PASSWORD='TeslaPool#2026' \
+  npm run db:deploy -w @dhakapool/api && npm run db:seed -w @dhakapool/api
+```
 
-**3. Web: Vercel.** *Add New → Project*, import this repository, and set **Root Directory** to `apps/web`. Add the environment variable `API_INTERNAL_URL = https://<api-name>.onrender.com` for all environments before the first build, because the `/api` rewrite is fixed at build time. Deploy, then put the Vercel address into `WEB_ORIGIN` on Render and redeploy the API.
+**2. API: Railway.** `railway init -n dhakapool`, `railway add --service api`, then set the service variables:
 
-**Before a demo.** Free services sleep: open the API's `/health` first and wait for `{"status":"ok","db":"up"}` (Render needs about a minute to wake after 15 idle minutes). A Supabase project pauses after a week without activity and is resumed from its dashboard.
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` · `DIRECT_URL` | the two Supabase values above |
+| `SEED_DEMO_PASSWORD` | `TeslaPool#2026` (demo personas, documented above) |
+| `WEB_ORIGIN` | the Vercel address from step 3 (a placeholder first, then redeploy) |
+| `COOKIE_SECURE` | `true` (HTTPS only) |
+| `TRUST_PROXY_HOPS` | `2` (Vercel's rewrite plus Railway's load balancer, NFR-SEC-07) |
+| `PORT` · `API_PORT` | `4000` (Railway routes to `PORT`; the API reads `API_PORT`) |
+| `RAILWAY_DOCKERFILE_PATH` | `apps/api/Dockerfile` (the Dockerfile is not at the repository root) |
+
+Set the **healthcheck path** to `/health` and the timeout to 600 s (the container migrates and seeds before listening; `docker compose` and the service settings both use `/health`). Deploy with `railway up --service api` from the repository root; the container runs `prisma migrate deploy`, seeds and starts the server. `railway domain` prints the public address; check `https://<api-name>.up.railway.app/health`.
+
+**3. Web: Vercel.** *Add New → Project*, import this repository, and set **Root Directory** to `apps/web`. Add the environment variable `API_INTERNAL_URL = https://<api-name>.up.railway.app` for all environments before the first build, because the `/api` rewrite is fixed at build time. Turn **Deployment Protection** off so visitors reach the demo without a Vercel login. Deploy, then put the Vercel address into `WEB_ORIGIN` on Railway and redeploy the API.
+
+**Before a demo.** Open the API's `/health` first and wait for `{"status":"ok","db":"up"}`. A Supabase project pauses after a week without activity and is resumed from its dashboard.
