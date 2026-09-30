@@ -27,3 +27,6 @@ npm-debug.log*
 
 # Office lock files (for example while the tracker workbook is open in Excel)
 ~$*
+
+.vercel
+.env*

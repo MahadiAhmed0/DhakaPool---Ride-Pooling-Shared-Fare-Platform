@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Document ID | DTP-ARC-001 |
-| Version | 1.2 |
+| Version | 1.3 |
 | Author | Golam Mahadi Ahmed |
 | Implements | [SRS DTP-SRS-001 v0.7](SRS.md) |
 | Related | [ERD](ERD.md) · [Architecture Decision Records](adr/README.md) · [Traceability workbook](DhakaPool_SRS_Tracker.xlsx) |
@@ -26,6 +26,7 @@
 | 1.0 | 2026-09-25 | Release baseline for v1.0.0: implements SRS v0.5; ADR-0001…0013 Accepted; the implementation matches this document |
 | 1.1 | 2026-09-28 | Implements SRS v0.6: the sign-up form confirms and can reveal the password (FR-AUTH-08). No architectural change |
 | 1.2 | 2026-09-28 | Implements SRS v0.7: the sign-in password can be revealed too (FR-AUTH-08). No architectural change |
+| 1.3 | 2026-09-30 | Hosted demo on Railway instead of Render (owner's choice, ADR-0009 amended): `RAILWAY_DOCKERFILE_PATH`, healthcheck `/health`, `PORT`/`API_PORT` 4000; Supabase in ap-northeast-2 (Seoul) over the IPv4 session pooler |
 
 > **Rule for this document (DR-06, DR-18):** the code must broadly match this document. When the implementation diverges, update this file and the relevant ADR in the same pull request.
 
@@ -356,7 +357,7 @@ This is a preview; the full reasoning goes in the README bonus (DR-17).
 | Data minimisation | Passenger ride DTOs include `shared`, `coRiderCount` and the pool's `genderRestriction` badge only (A-09). No user's gender is returned to anyone except that user (A-20). The driver pool DTO includes member names, fares, payment methods and the restriction badge, but not members' genders (A-10). |
 | Input validation | Zod schemas from `packages/shared`, `.strict()` (unknown keys rejected). UUID path params are validated. Enums are validated against the shared definitions. |
 | Transport & headers | `helmet()` defaults; JSON body limit 100 kB; `cors({ origin: WEB_ORIGIN, credentials: true })` only matters for direct API access, since the browser uses the proxy. |
-| Rate limiting | `express-rate-limit` on `/api/auth/login` and `/signup`: 10 per minute per IP. Memory store, which is acceptable for one instance and noted in §12. Express trusts exactly `TRUST_PROXY_HOPS` proxy hops (default 1, the web app's `/api` proxy; 2 when hosted behind the Vercel rewrite and Render's load balancer), so the limit applies per client IP rather than to every user behind the proxies. |
+| Rate limiting | `express-rate-limit` on `/api/auth/login` and `/signup`: 10 per minute per IP. Memory store, which is acceptable for one instance and noted in §12. Express trusts exactly `TRUST_PROXY_HOPS` proxy hops (default 1, the web app's `/api` proxy; 2 when hosted behind the Vercel rewrite and Railway's load balancer), so the limit applies per client IP rather than to every user behind the proxies. |
 | SQL injection | Prisma query API. The few raw queries use tagged templates (`$queryRaw` with parameters), never `$queryRawUnsafe`. |
 | Secrets | Only from environment variables, validated at boot by a Zod `env.ts`. `.env` is git-ignored; `.env.example` holds placeholders only. |
 | Errors | Production responses never include stacks. Every error carries `requestId`, which matches the log line. |
@@ -484,16 +485,16 @@ flowchart LR
 ```mermaid
 flowchart LR
     U["Browser"] -- HTTPS --> V["Vercel<br/>Next.js web<br/>rewrites /api/* →"]
-    V -- HTTPS --> R["Render free web service<br/>api container (same Dockerfile)"]
+    V -- HTTPS --> R["Railway<br/>api container (same Dockerfile)"]
     R -- "session pooler (app, DATABASE_URL)" --> S[("Supabase Postgres")]
     R -. "session pooler (migrations, DIRECT_URL)" .-> S
 ```
 
-**As configured (checked against the providers' published free tiers on 2026-09-25):**
-- **Render instead of Railway.** Railway's free plan gives $1 of credit a month, which cannot keep a 0.5 GB service running, and the PRD forbids paying. The API therefore uses ADR-0009's fallback: Render's free web service with the same Dockerfile (`render.yaml`). It sleeps after 15 idle minutes and takes about a minute to wake, so the demo starts by opening `/health`.
-- **Supabase session pooler for both URLs.** Render has no IPv6, and Supabase's direct connection is IPv6-only on the free plan, so both `DATABASE_URL` (app) and `DIRECT_URL` (migrations) use the IPv4 session pooler. Session mode keeps one server connection per client connection, so interactive transactions, `SET LOCAL lock_timeout` and `FOR UPDATE` behave exactly as locally. The free project pauses after a week of inactivity.
-- **Proxy hops.** Requests pass through Vercel's rewrite and Render's load balancer, so the API runs with `TRUST_PROXY_HOPS=2` (§8).
-- **Vercel:** Root Directory `apps/web`; `apps/web/vercel.json` installs and builds from the repository root so the shared package is built first. `API_INTERNAL_URL` must be set before the build, because rewrites are compiled into it.
+**As configured (checked against the providers' published free tiers on 2026-09-25, amended 2026-09-30):**
+- **Railway (ADR-0009 amended).** The demo originally used ADR-0009's Render fallback because Railway's free plan could not keep a service running and the PRD forbade paying. The owner now hosts the demo on Railway itself, which ADR-0009 chose in the first place. The same Dockerfile runs there, selected with the `RAILWAY_DOCKERFILE_PATH=apps/api/Dockerfile` variable because the Dockerfile is not at the repository root; Railway routes to `PORT=4000`, which the API reads through `API_PORT`; the healthcheck path is `/health` with a 600 s timeout because the container migrates and seeds before listening. `render.yaml` stays in the repository as the documented free fallback.
+- **Supabase session pooler for both URLs.** Supabase's direct connection is IPv6-only on the free plan, so both `DATABASE_URL` (app) and `DIRECT_URL` (migrations) use the IPv4 session pooler. Session mode keeps one server connection per client connection, so interactive transactions, `SET LOCAL lock_timeout` and `FOR UPDATE` behave exactly as locally. The demo project is in ap-northeast-2 (Seoul); the free project pauses after a week of inactivity.
+- **Proxy hops.** Requests pass through Vercel's rewrite and Railway's load balancer, so the API runs with `TRUST_PROXY_HOPS=2` (§8).
+- **Vercel:** Root Directory `apps/web`; `apps/web/vercel.json` installs and builds from the repository root so the shared package is built first. `API_INTERNAL_URL` must be set before the build, because rewrites are compiled into it. Deployment Protection is turned off so the demo is publicly reachable.
 
 ### 12.3 Configuration (`.env.example`)
 
@@ -509,7 +510,7 @@ flowchart LR
 | `DB_PORT` | `5432` (host port; change if already in use) | db |
 | `NODE_ENV` · `LOG_LEVEL` | `production` · `info` | api, web |
 | `SESSION_TTL_HOURS` · `COOKIE_SECURE` · `BCRYPT_COST` | `168` · `false` · `12` | api |
-| `TRUST_PROXY_HOPS` | `1` (Docker); `2` behind Vercel and Render | api (rate-limit client IP) |
+| `TRUST_PROXY_HOPS` | `1` (Docker); `2` behind Vercel and Railway | api (rate-limit client IP) |
 | `FARE_BASE_PAISA` · `FARE_PER_KM_PAISA` · `FARE_POOL_DISCOUNT_BPS` · `CANCELLATION_FEE_PAISA` | `3000` · `1500` · `2000` · `2000` | api (BR-11) |
 | `REQUEST_EXPIRY_MINUTES` · `POOL_JOIN_WINDOW_MINUTES` · `NO_SHOW_WAIT_MINUTES` | `15` · `10` · `5` | api (A-13, BR-02, FR-DRV-12) |
 | `SEED_DEMO_PASSWORD` | `TeslaPool#2026` (demo only, documented in README) | seed |

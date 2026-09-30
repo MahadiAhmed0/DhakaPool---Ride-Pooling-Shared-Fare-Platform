@@ -1,6 +1,6 @@
 # ADR-0009: Docker Compose first; later Vercel + Railway + Supabase (free tiers)
 
-- **Status:** Accepted · 2026-09-24 (chosen by the product owner/developer)
+- **Status:** Accepted · 2026-09-24 (chosen by the product owner/developer); **amended 2026-09-30** — the hosted demo runs on Railway as decision 2 planned (see "Amended" below)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** NFR-POR-01…04, DC-04, DR-09, DR-11, DR-13, [Architecture §12](../ARCHITECTURE.md#12-deployment)
 
@@ -27,6 +27,16 @@
    - `API_INTERNAL_URL` is set in Vercel at build time, because rewrites are compiled.
    - `COOKIE_SECURE=true` and `WEB_ORIGIN=<vercel url>` are set on Railway.
 3. **Guardrail:** before deploying, confirm that Railway can host the API **without paying** (PRD §16). If it can't, fall back to Render's free web service for the API (documenting the cold start). If no free host works, ship the documented Docker deployment only (DR-11).
+
+## Amended 2026-09-30: the hosted demo runs on Railway
+
+The demo was first deployed to the Render fallback (2026-09-25), as recorded in Architecture §12.2. On 2026-09-30 the owner moved the API to Railway — the option this ADR picked first — accepting the plan's cost rather than the PRD's free-only rule. The configuration is the same otherwise, with three Railway-specific settings:
+
+- **Dockerfile detection:** Railway's builders only auto-detect a Dockerfile at the repository root, so the service sets `RAILWAY_DOCKERFILE_PATH=apps/api/Dockerfile`.
+- **Ports:** Railway routes to its `PORT` variable and the API reads `API_PORT`, so both are set to `4000`.
+- **Healthcheck:** path `/health`, timeout 600 s — the container runs `prisma migrate deploy` and the seed before it listens.
+
+Everything else in the decision stands: the same Dockerfile as Docker Compose, Supabase's IPv4 session pooler for `DATABASE_URL` (app, `sslmode=no-verify`) and `DIRECT_URL` (migrations, `sslmode=require`), `API_INTERNAL_URL` set on Vercel before the build, `COOKIE_SECURE=true` and `TRUST_PROXY_HOPS=2` on the API, and `render.yaml` kept as the documented free fallback. The demo project lives in Supabase's ap-northeast-2 (Seoul) region.
 
 ## Consequences
 
