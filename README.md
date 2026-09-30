@@ -142,6 +142,23 @@ Every seeded persona uses the demo password **`TeslaPool#2026`** (set by `SEED_D
 | Jashim | `jashim@dhakapool.test` | Driver | **Bullet**, 3 seats, `DHAKA-TESLA-11`, offline |
 | Kamal | `kamal@dhakapool.test` | Driver | **Toofan**, 3 seats, `DHAKA-TESLA-22`, offline |
 
+The seed also creates the ten Dhaka zones the app offers, with the road distances that drive every fare. Distances here are from Banani, the pickup in the tour below; the price is the solo fare for one seat, ৳30 base plus ৳15 per kilometre.
+
+| Code | Zone | From Banani | Solo fare | Shares a boundary with |
+|---|---|---|---|---|
+| `BAN` | Banani | pickup | | GL1, GL2, MHK |
+| `GL1` | Gulshan 1 | 2.5 km | ৳67.50 | BAN, GL2, MHK, TEJ |
+| `GL2` | Gulshan 2 | 2.0 km | ৳60.00 | BAN, GL1, BSH |
+| `MHK` | Mohakhali | 3.0 km | ৳75.00 | BAN, GL1, TEJ |
+| `TEJ` | Tejgaon | 5.0 km | ৳105.00 | GL1, MHK, FRM |
+| `FRM` | Farmgate | 7.0 km | ৳135.00 | TEJ, DHN, MIR |
+| `DHN` | Dhanmondi | 10.0 km | ৳180.00 | FRM |
+| `MIR` | Mirpur | 8.5 km | ৳157.50 | FRM |
+| `UTR` | Uttara | 11.0 km | ৳195.00 | BSH |
+| `BSH` | Bashundhara | 5.5 km | ৳112.50 | GL2, UTR |
+
+Two passengers may share a Tesla only when their destinations are the same or share a boundary (BR-02), which is why a Banani → Uttara request cannot join a trip heading to Mohakhali. The seed is idempotent, keyed on e-mail, zone code and plate, so running it again changes nothing. [ERD §6](docs/ERD.md#6-seed-data-reference-personas-dr-15) lists every seeded row, and [SRS §13.3](docs/SRS.md) holds the full distance matrix.
+
 **A two-minute tour (scenario E1):** sign in as Jashim in one browser and go online in Banani. In another browser (or a private window), sign in as Nusrat and request Banani → Mohakhali, shared, TeslaPay; then as Rafiq request Banani → Gulshan 1, shared, cash. Jashim accepts both, marks *Arrived*, *Start*, and drops them off. Nusrat pays ৳66.00 from TeslaPay and Rafiq ৳60.00 in cash (their solo fares would be ৳75.00 and ৳67.50).
 
 ## Architecture
