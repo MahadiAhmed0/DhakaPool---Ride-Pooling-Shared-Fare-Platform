@@ -2,6 +2,8 @@
 
 # 1) Install dependencies and compile TypeScript.
 FROM node:24-bookworm-slim AS build
+# Prisma looks for OpenSSL to pick its engine; the slim image does not include it.
+RUN apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
@@ -14,6 +16,8 @@ RUN npm run build --workspace @dhakapool/shared && npm run build --workspace @dh
 
 # 2) Run. The Prisma CLI stays installed so migrations run when the container starts.
 FROM node:24-bookworm-slim AS runtime
+# Prisma looks for OpenSSL to pick its engine; the slim image does not include it.
+RUN apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app ./

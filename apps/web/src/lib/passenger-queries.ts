@@ -14,6 +14,7 @@ import type {
 import { isActiveRide } from '@dhakapool/shared';
 import {
   type InfiniteData,
+  keepPreviousData,
   useInfiniteQuery,
   type UseInfiniteQueryResult,
   useQuery,
@@ -104,5 +105,8 @@ export function useFareEstimate(trip: Trip): UseQueryResult<FareEstimate> {
     queryFn: async () =>
       (await api.post<{ estimate: FareEstimate }>('/fares/estimate', trip)).estimate,
     enabled: isCompleteTrip(trip),
+    // NFR-USA-01: a re-estimate keeps the previous price visible instead of collapsing
+    // the panel to a loading box, which moved everything below it on every change.
+    placeholderData: keepPreviousData,
   });
 }

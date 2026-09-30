@@ -12,6 +12,9 @@ const envSchema = z.object({
   SESSION_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7 days
   COOKIE_SECURE: z.stringbool().default(false), // true in production (HTTPS only)
   BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
+  // How many proxies sit in front of the API: 1 for the web app's /api proxy (Docker), 2 when a
+  // hosting load balancer is added behind it. Rate limits are keyed on the IP they report (NFR-SEC-07).
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

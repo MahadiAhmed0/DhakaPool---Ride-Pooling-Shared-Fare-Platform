@@ -1,6 +1,6 @@
 # ADR-0006: Concurrency — row locks + compare-and-set + DB constraints; in-process expiry
 
-- **Status:** Proposed · 2026-09-24
+- **Status:** Accepted · 2026-09-25 (proposed 2026-09-24; accepted once implemented and verified by the test suite)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** NFR-CON-01…06, NFR-REL-04, FR-POOL-02/09, PRD §12, [Architecture §6.2–6.3, §7](../ARCHITECTURE.md#7-consistency--concurrency-strategy-nfr-con-0106-adr-0006)
 

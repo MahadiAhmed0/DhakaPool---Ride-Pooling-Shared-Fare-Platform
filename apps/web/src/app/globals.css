@@ -25,6 +25,13 @@
 }
 
 @layer base {
+  /* NFR-USA-05: always reserve the scrollbar's width. Without this the page jumps
+     sideways the moment content grows past the viewport, for example when the fare
+     estimate appears, and again when moving between a short page and a long one. */
+  html {
+    scrollbar-gutter: stable;
+  }
+
   body {
     background-color: var(--color-page);
     color: var(--color-ink);

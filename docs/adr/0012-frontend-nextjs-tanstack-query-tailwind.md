@@ -1,6 +1,6 @@
 # ADR-0012: Next.js App Router + TanStack Query + Tailwind CSS
 
-- **Status:** Proposed · 2026-09-24
+- **Status:** Accepted · 2026-09-25 (proposed 2026-09-24; accepted once implemented and verified by the test suite)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** DC-01, FR-PAX-06/07, NFR-USA-01…06, [Architecture §10](../ARCHITECTURE.md#10-frontend-architecture)
 

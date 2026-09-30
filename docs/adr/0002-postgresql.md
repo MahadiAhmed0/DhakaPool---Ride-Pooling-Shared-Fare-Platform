@@ -1,6 +1,6 @@
 # ADR-0002: PostgreSQL as the database
 
-- **Status:** Proposed · 2026-09-24
+- **Status:** Accepted · 2026-09-25 (proposed 2026-09-24; accepted once implemented and verified by the test suite)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** DC-03, NFR-CON-01…05, SRS D-13, [ERD](../ERD.md)
 

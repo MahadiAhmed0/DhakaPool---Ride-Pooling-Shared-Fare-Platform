@@ -31,9 +31,9 @@ export type AppOptions = {
 
 export function createApp(options: AppOptions = {}): Express {
   const app = express();
-  // The web app's /api proxy is the one hop in front of the API, so the client IP used for rate
-  // limiting is taken from the X-Forwarded-For header that proxy adds.
-  app.set('trust proxy', 1);
+  // The client IP used for rate limiting comes from the X-Forwarded-For header the proxies add.
+  // Trusting exactly as many hops as there are keeps one client from being mistaken for another.
+  app.set('trust proxy', env.TRUST_PROXY_HOPS);
 
   app.use(requestId);
   app.use(httpLogger);

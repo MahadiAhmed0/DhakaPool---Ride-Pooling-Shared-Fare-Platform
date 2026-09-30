@@ -21,6 +21,7 @@
     "test": "npm run build:shared && npm run test --workspaces --if-present",
     "db:migrate": "npm run db:migrate -w @dhakapool/api",
     "db:seed": "npm run db:seed -w @dhakapool/api",
+    "load:smoke": "node --env-file-if-exists=.env scripts/load-smoke.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

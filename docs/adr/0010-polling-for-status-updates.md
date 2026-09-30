@@ -1,6 +1,6 @@
 # ADR-0010: Client polling for live status
 
-- **Status:** Proposed · 2026-09-24
+- **Status:** Accepted · 2026-09-25 (proposed 2026-09-24; accepted once implemented and verified by the test suite)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** FR-PAX-07, NFR-PERF-03, SRS D-11 / A-11, DC-05
 

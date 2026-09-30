@@ -11,7 +11,9 @@ const prismaCli = path.join(path.dirname(require.resolve('prisma/package.json'))
 export async function setup(): Promise<void> {
   execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], {
     cwd: path.join(import.meta.dirname, '../..'),
-    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
+    // Both URLs point at the test database: migrations prefer DIRECT_URL (prisma.config.ts), and
+    // .env may set it to the development database.
+    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL, DIRECT_URL: TEST_DATABASE_URL },
     stdio: 'pipe',
   });
   process.env['DATABASE_URL'] = TEST_DATABASE_URL;

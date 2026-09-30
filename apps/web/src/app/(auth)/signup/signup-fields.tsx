@@ -2,12 +2,37 @@
 // it is never shown to other riders or to drivers (FR-PAX-11, A-20).
 import type { FieldErrors, UseFormRegister } from 'react-hook-form';
 import { Field, Select, TextField } from '@/components/ui/field';
+import { PasswordField } from '@/components/ui/password-field';
 import type { SignUpFormValues } from './signup-form';
 
 type SignUpFieldsProps = {
   register: UseFormRegister<SignUpFormValues>;
   errors: FieldErrors<SignUpFormValues>;
 };
+
+// FR-AUTH-08: the password is typed twice, and either field can be revealed on its own.
+function PasswordFields({ register, errors }: SignUpFieldsProps) {
+  return (
+    <>
+      <PasswordField
+        id="password"
+        label="Password"
+        autoComplete="new-password"
+        hint="At least 8 characters."
+        error={errors.password?.message}
+        {...register('password')}
+      />
+      <PasswordField
+        id="confirmPassword"
+        label="Confirm password"
+        autoComplete="new-password"
+        hint="Type it again so a typo cannot lock you out."
+        error={errors.confirmPassword?.message}
+        {...register('confirmPassword')}
+      />
+    </>
+  );
+}
 
 export function SignUpFields({ register, errors }: SignUpFieldsProps) {
   return (
@@ -36,15 +61,7 @@ export function SignUpFields({ register, errors }: SignUpFieldsProps) {
         error={errors.phone?.message}
         {...register('phone')}
       />
-      <TextField
-        id="password"
-        label="Password"
-        type="password"
-        autoComplete="new-password"
-        hint="At least 8 characters."
-        error={errors.password?.message}
-        {...register('password')}
-      />
+      <PasswordFields register={register} errors={errors} />
       <Field
         id="gender"
         label="Gender (optional)"

@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/field';
+import { PasswordField } from '@/components/ui/password-field';
 import { ErrorState } from '@/components/ui/states';
 import { api } from '@/lib/api-client';
 import { messageOf } from '@/lib/form-errors';
@@ -44,10 +45,9 @@ export function LoginForm() {
         error={errors.emailOrPhone?.message}
         {...register('emailOrPhone')}
       />
-      <TextField
+      <PasswordField
         id="password"
         label="Password"
-        type="password"
         autoComplete="current-password"
         error={errors.password?.message}
         {...register('password')}

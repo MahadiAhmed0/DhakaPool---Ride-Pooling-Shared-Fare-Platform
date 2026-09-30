@@ -1,0 +1,35 @@
+# Render Blueprint for the API (ADR-0009, ARCHITECTURE §12.2): the same Dockerfile as Docker
+# Compose, on Render's free web service. Values marked "sync: false" are secrets or URLs that are
+# entered in the Render dashboard when the Blueprint is created; they are never committed.
+services:
+  - type: web
+    name: dhakapool-api
+    runtime: docker
+    plan: free
+    region: singapore # closest Render region to Dhaka; pick the same region for Supabase
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: '10000' # the port Render routes to by default
+      # Supabase session pooler (IPv4) for the app; see README "Deployment".
+      - key: DATABASE_URL
+        sync: false
+      # Supabase session pooler with sslmode=require, used by migrations.
+      - key: DIRECT_URL
+        sync: false
+      # The Vercel address of the web app, for example https://dhakapool.vercel.app
+      - key: WEB_ORIGIN
+        sync: false
+      - key: SEED_DEMO_PASSWORD
+        sync: false
+      - key: COOKIE_SECURE
+        value: 'true'
+      # Vercel's rewrite plus Render's load balancer (NFR-SEC-07).
+      - key: TRUST_PROXY_HOPS
+        value: '2'
+      - key: LOG_LEVEL
+        value: info

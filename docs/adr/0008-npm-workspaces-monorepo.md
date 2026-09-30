@@ -1,6 +1,6 @@
 # ADR-0008: npm-workspaces monorepo with a shared Zod package
 
-- **Status:** Proposed · 2026-09-24
+- **Status:** Accepted · 2026-09-25 (proposed 2026-09-24; accepted once implemented and verified by the test suite)
 - **Deciders:** Golam Mahadi Ahmed
 - **Related:** NFR-MNT-01/03, NFR-SEC-04, [Architecture §11](../ARCHITECTURE.md#11-repository-layout-npm-workspaces-monorepo-adr-0008)
 
