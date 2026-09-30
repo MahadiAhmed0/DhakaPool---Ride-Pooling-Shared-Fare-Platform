@@ -1,6 +1,6 @@
 {
   "name": "@dhakapool/web",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Dhaka Tesla Pool web app (Next.js App Router)",
   "scripts": {
